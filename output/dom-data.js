@@ -45,14 +45,14 @@ window.HOUSE = {
     { id: 'B_w2', g: 'B', x: [20.5, 22.45],  y: [6.34, 12.46],  fall: '-x', hi: 22.45, z: 8.35, pitch: PITCH, t: 0.35 },
     { id: 'B_w3', g: 'B', x: [18.45, 22.45], y: [12.46, 18.97], fall: '-x', hi: 22.45, z: 8.35, pitch: PITCH, t: 0.35 },
     { id: 'B_e1', g: 'B', x: [22.45, 26.45], y: [-0.1, 6.34],   fall: '+x', hi: 22.45, z: 8.35, pitch: PITCH, t: 0.35 },
-    { id: 'B_e2', g: 'B', x: [22.45, 24.7],  y: [6.34, 15.3],   fall: '+x', hi: 22.45, z: 8.35, pitch: PITCH, t: 0.35 },
-    { id: 'B_e3', g: 'B', x: [22.45, 26.45], y: [15.3, 18.97],  fall: '+x', hi: 22.45, z: 8.35, pitch: PITCH, t: 0.35 },
+    { id: 'B_e2', g: 'B', x: [22.45, 24.7],  y: [6.34, 15.38],   fall: '+x', hi: 22.45, z: 8.35, pitch: PITCH, t: 0.35 },
+    { id: 'B_e3', g: 'B', x: [22.45, 26.45], y: [15.38, 18.97],  fall: '+x', hi: 22.45, z: 8.35, pitch: PITCH, t: 0.35 },
     // Белый «короб» C (коридор, зона отдыха, второй свет над холлом), плоская крыша
     { id: 'C1', g: 'C', x: [9.29, 13.3], y: [8.29, 14.0],  pitch: 0, z: 6.35, t: 0.4 },
     { id: 'C2', g: 'C', x: [13.3, 18.6], y: [6.34, 14.0],  pitch: 0, z: 6.35, t: 0.4 },
     { id: 'C3', g: 'C', x: [18.6, 20.5], y: [6.34, 12.46], pitch: 0, z: 6.35, t: 0.4 },
     // Выступ D над библиотекой, спальней и гардеробной (большое окно на запад), плоская крыша
-    { id: 'D1', g: 'D', x: [24.7, 26.45], y: [6.34, 15.3], pitch: 0, z: 6.1, t: 0.4 },
+    { id: 'D1', g: 'D', x: [24.7, 26.45], y: [6.34, 15.38], pitch: 0, z: 6.1, t: 0.4 },
   ],
 
   // Белые рамки вокруг фронтонов: wall — стена-фронтон, zb — до какой высоты опускаются «ноги» [начало, конец стены]
@@ -101,18 +101,18 @@ window.HOUSE = {
 
     // ===== 1-й этаж: внутренние =====
     { id: 'I1', lvl: 'gf', a: [3.9, 8.425], b: [12.9, 8.425], t: BEAR, h: GF_H, kind: 'int',
-      o: [{ k: 'door', from: 6.0, to: 6.9, h: 2.1 }, { k: 'door', from: 8.0, to: 8.8, h: 2.1 }, { k: 'door', from: 10.0, to: 10.9, h: 2.1 }] },
+      o: [{ k: 'door', from: 6.15, to: 6.95, h: 2.1 }, { k: 'door', from: 8.1, to: 8.9, h: 2.1 }, { k: 'door', from: 10.1, to: 10.9, h: 2.1 }] },
     { id: 'I2', lvl: 'gf', a: [7.275, 3.9], b: [7.275, 8.3], t: BEAR, h: GF_H, kind: 'int' },
     { id: 'I3', lvl: 'gf', a: [9.455, 3.9], b: [9.455, 8.3], t: BEAR, h: GF_H, kind: 'int' },
     { id: 'I4', lvl: 'gf', a: [3.9, 10.21], b: [13.1, 10.21], t: PART, h: GF_H, kind: 'int',
-      o: [{ k: 'door', from: 6.0, to: 6.9, h: 2.1 }, { k: 'door', from: 9.6, to: 10.3, h: 2.1 }, { k: 'door', from: 11.2, to: 12.8, h: 2.1 }] },
+      o: [{ k: 'door', from: 6.15, to: 6.95, h: 2.1 }, { k: 'door', from: 9.6, to: 10.3, h: 2.1 }] },   // гардероб 2 открыт в прихожую, не в коридор
     { id: 'I5', lvl: 'gf', a: [9.33, 10.27], b: [9.33, 13.6], t: PART, h: GF_H, kind: 'int' },
     { id: 'I6', lvl: 'gf', a: [10.82, 10.27], b: [10.82, 13.6], t: PART, h: GF_H, kind: 'int' },
     { id: 'I7', lvl: 'gf', a: [18.8, 6.74], b: [18.8, 10.5], t: 0.35, h: GF_H, kind: 'int' },
     { id: 'I8', lvl: 'gf', a: [26.225, 10.84], b: [26.225, 15.84], t: 0.35, h: GF_H, kind: 'int',
-      o: [{ k: 'door', from: 14.9, to: 15.7, h: 2.1 }] },
+      o: [{ k: 'door', from: 14.2, to: 15.0, h: 2.1 }] },
     { id: 'I9', lvl: 'gf', a: [18.6, 15.965], b: [28.6, 15.965], t: BEAR, h: GF_H, kind: 'int',
-      o: [{ k: 'win', from: 19.05, to: 21.1, sill: 0.1, h: 2.55, mull: { v: [20.07] } },             // угол кухни: витраж в патио
+      o: [{ k: 'win', from: 19.05, to: 20.45, sill: 0.1, h: 2.55 },                                  // угол кухни: витраж в патио
           { k: 'door', from: 25.0, to: 25.9, h: 2.1 }] },
     { id: 'I10', lvl: 'gf', a: [21.6, 18.465], b: [28.6, 18.465], t: BEAR, h: GF_H, kind: 'int',
       o: [{ k: 'door', from: 25.0, to: 25.9, h: 2.1 }, { k: 'door', from: 27.0, to: 27.8, h: 2.1 }] },
@@ -124,7 +124,7 @@ window.HOUSE = {
     { id: 'A1', lvl: 'attic', a: [3.5, 2.67], b: [13.3, 2.67], t: EXT, z0: AT, h: KNEE, m: 'metal', side: '-y', clip: ['A'], off: 0.35 },
     { id: 'A2', lvl: 'attic', a: [3.5, 9.99], b: [9.29, 9.99], t: EXT, z0: AT, h: KNEE, m: 'metal', side: '+y', clip: ['A'], off: 0.35 },
     { id: 'A3', lvl: 'attic', a: [3.7, 2.47], b: [3.7, 10.19], t: EXT, z0: AT, h: 7, clip: ['A'], off: 0.35,   // фронтон с крестом
-      o: [{ k: 'glass', poly: [[5.2, 0], [9.69, 0], [9.69, 1.3], [6.33, 4.6], [2.97, 1.3], [2.97, 0.9], [5.2, 0.9]], mull: { v: [6.33], h: [2.8] } }] },
+      o: [{ k: 'glass', poly: [[5.4, 0], [7.25, 0], [7.25, 0.9], [9.69, 0.9], [9.69, 1.3], [6.33, 4.6], [2.97, 1.3], [2.97, 0.9], [5.4, 0.9]], mull: { v: [6.33], h: [2.8] } }] },
     { id: 'A4', lvl: 'attic', a: [13.1, 2.47], b: [13.1, 9.79], t: EXT, z0: AT, h: 7, clip: ['A', 'C'], off: 0.35,
       o: [{ k: 'win', from: 4.0, to: 4.8, sill: 1.2, h: 1.0 }] },
     { id: 'A5', lvl: 'attic', a: [3.9, 6.33], b: [8.0, 6.33], t: PART, z0: AT, h: 7, kind: 'int', clip: ['A'] },
@@ -152,16 +152,17 @@ window.HOUSE = {
     // ===== Мансарда: объём B =====
     { id: 'B1a', lvl: 'attic', a: [18.8, 12.46], b: [18.8, 14.0], t: EXT, z0: AT, h: 3.35 },
     { id: 'B1b', lvl: 'attic', a: [18.8, 14.0], b: [18.8, 18.87], t: EXT, z0: AT, h: KNEE, m: 'metal', side: '-x', clip: ['B'], off: 0.35 },
-    { id: 'B2a', lvl: 'attic', a: [26.1, 6.74], b: [26.1, 15.3], t: EXT, z0: AT, h: 3.1,               // выступ D: витраж на запад
+    { id: 'B2a', lvl: 'attic', a: [26.1, 6.74], b: [26.1, 15.38], t: EXT, z0: AT, h: 3.1,               // выступ D: витраж на запад
       o: [{ k: 'win', from: 6.97, to: 14.9, sill: 0.05, h: 2.05, mull: { v: [8.2, 10.3, 12.8] } }] },
-    { id: 'B2b', lvl: 'attic', a: [26.1, 15.3], b: [26.1, 18.87], t: EXT, z0: AT, h: KNEE, m: 'metal', side: '+x', clip: ['B'], off: 0.35 },
+    { id: 'B2b', lvl: 'attic', a: [26.1, 15.38], b: [26.1, 18.87], t: EXT, z0: AT, h: KNEE, m: 'metal', side: '+x', clip: ['B'], off: 0.35 },
     { id: 'D2', lvl: 'attic', a: [24.7, 6.44], b: [26.3, 6.44], t: 0.2, z0: AT, h: 7, clip: ['B', 'D'], off: 0.35, mode: 'max', m: 'metal', side: '-y' },
-    { id: 'D3', lvl: 'attic', a: [24.7, 15.2], b: [26.3, 15.2], t: 0.2, z0: AT, h: 7, clip: ['B', 'D'], off: 0.35, mode: 'max', m: 'metal', side: '+y' },
+    { id: 'D3', lvl: 'attic', a: [24.7, 15.38], b: [26.3, 15.38], t: PART, z0: AT, h: 7, clip: ['B', 'D'], off: 0.35, mode: 'max', m: 'metal', side: '+y',
+      o: [{ k: 'door', from: 24.6, to: 25.4, h: 2.1 }] },
     { id: 'B3', lvl: 'attic', a: [18.6, 18.67], b: [26.3, 18.67], t: EXT, z0: AT, h: 7, clip: ['B'], off: 0.35,   // фронтон со стороны въезда
       o: [{ k: 'win', from: 21.0, to: 23.9, sill: 0.05, h: 2.4, mull: { v: [21.97, 22.93] } },
           { k: 'win', poly: [[20.9, 2.85], [24.0, 2.85], [22.45, 4.4]], mull: { v: [22.45] } }] },
     { id: 'B4', lvl: 'attic', a: [20.51, 8.42], b: [20.51, 18.47], t: PART, z0: AT, h: 7, kind: 'int', clip: ['B'],
-      o: [{ k: 'door', from: 8.8, to: 9.7, h: 2.1 }, { k: 'door', from: 16.2, to: 16.9, h: 2.0 }] },
+      o: [{ k: 'door', from: 8.8, to: 9.7, h: 2.1 }, { k: 'door', from: 17.6, to: 18.3, h: 2.0 }] },
     { id: 'B5', lvl: 'attic', a: [20.57, 8.36], b: [25.9, 8.36], t: PART, z0: AT, h: 7, kind: 'int', clip: ['B', 'D'] },
     { id: 'B6', lvl: 'attic', a: [20.5, 12.46], b: [25.9, 12.46], t: PART, z0: AT, h: 7, kind: 'int', clip: ['B', 'D'],
       o: [{ k: 'door', from: 24.6, to: 25.4, h: 2.1 }] },
@@ -304,7 +305,14 @@ window.HOUSE = {
     { t: 'fireplace', x: 18.8, y: 3.4 },
     { t: 'pendants', x: 22.4, y: 3.2, z: 4.8 },
     { t: 'floorlamp', x: 25.4, y: 1.0 },
-    { t: 'plant', x: 19.5, y: 0.9, big: true },
+    // Картины
+    { t: 'art', x: 18.99, y: 8.6, f: '+x', w: 1.4, h: 1.0, z: 1.6, n: 1 },     // столовая, стена у лестницы
+    { t: 'art', x: 13.32, y: 7.6, f: '+x', w: 0.8, h: 1.1, z: 1.55, n: 2 },    // холл
+    { t: 'art', x: 3.92, y: 5.9, f: '+x', w: 1.2, h: 0.7, z: 1.5, n: 3 },      // над кроватью в спальне 7
+    { t: 'art', x: 12.88, y: 5.9, f: '-x', w: 1.2, h: 0.7, z: 1.5, n: 1 },     // над кроватью в спальне 9
+    { t: 'art', x: 3.48, y: 11.0, f: '-x', w: 1.0, h: 0.75, z: 1.55, n: 2 },   // кабинет
+    { lvl: 'attic', t: 'art', x: 23.2, y: 12.38, f: '-y', w: 1.4, h: 0.8, z: 1.6, n: 3 },   // над кроватью в спальне мансарды
+    { t: 'plant', x: 25.45, y: 5.85, big: true },
     // Столовая 12
     { t: 'table', x: 21.8, y: 8.6, w: 3.0, d: 1.0, seats: 5 },
     { t: 'pendLine', x: 21.8, y: 8.6, n: 3, step: 0.9, z: 1.95 },
@@ -312,8 +320,8 @@ window.HOUSE = {
     { t: 'island', x: 22.4, y: 13.1, w: 4.0, d: 1.0 },
     { t: 'pendLine', x: 22.4, y: 13.1, n: 3, step: 1.2, z: 1.95 },
     { t: 'stool', x: 21.4, y: 12.3 }, { t: 'stool', x: 22.4, y: 12.3 }, { t: 'stool', x: 23.4, y: 12.3 },
-    { t: 'counter', x: 23.55, y: 15.53, f: '-y', w: 4.7, sink: true },   // гарнитур — правее витража в патио
-    { t: 'uppers', x: 23.55, y: 15.66, f: '-y', w: 4.7 },
+    { t: 'counter', x: 22.5, y: 15.53, f: '-y', w: 4.0, sink: true },    // по плану x 20,5–24,5: проход к тамбуру свободен
+    { t: 'uppers', x: 22.5, y: 15.66, f: '-y', w: 4.0 },
     { t: 'tall', x: 19.31, y: 12.95, f: '+x', w: 2.0 },                  // колонна с холодильником — до витража на вход
     // Холодная кладовая 11
     { t: 'shelf', x: 28.38, y: 13.3, f: '-x', w: 4.6, d: 0.4, h: 2.0 },
@@ -321,8 +329,8 @@ window.HOUSE = {
     // Прихожая 1, гардероб 2
     { t: 'sofa', x: 17.5, y: 12.95, f: '-y', w: 1.9, d: 0.85, c: 'fabric2' },
     { t: 'cabinet', x: 14.0, y: 13.38, f: '-y', w: 1.0, d: 0.4, h: 0.9 },
-    { t: 'wardrobe', x: 11.18, y: 11.9, f: '+x', w: 3.0 },
-    { t: 'wardrobe', x: 12.3, y: 13.3, f: '-y', w: 1.6 },
+    { t: 'wardrobe', x: 11.99, y: 10.57, f: '+y', w: 2.2 },   // по плану шкафы вдоль верхней и нижней стен
+    { t: 'wardrobe', x: 11.99, y: 13.3, f: '-y', w: 2.2 },
     // Кабинет 6
     { t: 'desk', x: 2.4, y: 11.6, f: '+y', w: 1.6, d: 0.8, office: true },
     { t: 'chair', x: 2.4, y: 12.35, f: '-y', c: 'leather' },
@@ -331,18 +339,18 @@ window.HOUSE = {
     { t: 'armchair', x: 2.6, y: 8.3, f: '+y', c: 'leather' },
     { t: 'plant', x: 3.1, y: 7.8 },
     // Прачечная 5
-    { t: 'counter', x: 5.3, y: 10.57, f: '+y', w: 2.0, sink: true },
+    { t: 'counter', x: 4.95, y: 10.57, f: '+y', w: 1.8, sink: true },
     { t: 'washer', x: 7.3, y: 10.6, f: '+y' }, { t: 'washer', x: 7.95, y: 10.6, f: '+y' },
     { t: 'unit', x: 4.25, y: 12.3, f: '+x', w: 1.2, d: 0.65, h: 1.9, grille: true },   // вентустановка с рекуперацией
     { t: 'shower', x: 8.77, y: 13.1, w: 0.95, d: 0.95, f: '-x' },
     { t: 'shelf', x: 6.5, y: 13.38, f: '-y', w: 2.2, d: 0.4, h: 2.0 },
     // Туалет 4
     { t: 'toilet', x: 10.07, y: 13.25, f: '-y' },
-    { t: 'basin', x: 9.62, y: 11.2, f: '+x', w: 0.5 },
+    { t: 'basin', x: 9.62, y: 11.9, f: '+x', w: 0.5 },
     // Гостевая спальня 7
     { t: 'bed', x: 5.0, y: 5.9, f: '+x', w: 1.6, d: 2.1 },
     { t: 'nightstand', x: 4.15, y: 4.75 }, { t: 'nightstand', x: 4.15, y: 7.05 },
-    { t: 'wardrobe', x: 5.4, y: 8.0, f: '-y', w: 2.2 },
+    { t: 'wardrobe', x: 5.0, y: 8.0, f: '-y', w: 2.0 },
     { t: 'desk', x: 6.85, y: 5.0, f: '-x', w: 1.2, d: 0.55 },
     { t: 'curtain', x: 4.45, y: 4.0, f: '+y', w: 0.6, h: 2.5 }, { t: 'curtain', x: 6.65, y: 4.0, f: '+y', w: 0.6, h: 2.5 },
     // Ванная 8
@@ -352,14 +360,14 @@ window.HOUSE = {
     // Гостевая спальня 9
     { t: 'bed', x: 11.85, y: 5.9, f: '-x', w: 1.6, d: 2.1 },
     { t: 'nightstand', x: 12.65, y: 4.75 }, { t: 'nightstand', x: 12.65, y: 7.05 },
-    { t: 'wardrobe', x: 11.2, y: 8.0, f: '-y', w: 2.2 },
+    { t: 'wardrobe', x: 12.0, y: 8.0, f: '-y', w: 1.8 },
     { t: 'desk', x: 10.0, y: 5.0, f: '+x', w: 1.2, d: 0.55 },
     { t: 'curtain', x: 10.15, y: 4.0, f: '+y', w: 0.6, h: 2.5 }, { t: 'curtain', x: 12.45, y: 4.0, f: '+y', w: 0.6, h: 2.5 },
     // Техпомещение 15, кладовая 16
     { t: 'unit', x: 22.0, y: 16.45, f: '+y', w: 0.7, d: 0.6, h: 1.8, grille: true },     // тепловой насос (PC)
     { t: 'boiler', x: 23.0, y: 16.5 },                                                     // бойлер (CW)
     { t: 'unit', x: 23.4, y: 18.1, f: '-y', w: 1.6, d: 0.4, h: 1.0, c: 'steel' },
-    { t: 'shelf', x: 27.5, y: 18.15, f: '-y', w: 2.0, d: 0.35, h: 2.0 },
+    { t: 'shelf', x: 27.5, y: 16.3, f: '+y', w: 2.0, d: 0.35, h: 2.0 },
     // Гараж 17
     { t: 'car', x: 24.6, y: 20.7, f: '-x' },
     { t: 'car', x: 24.6, y: 24.3, f: '-x', c: 'carDark' },
@@ -370,7 +378,7 @@ window.HOUSE = {
     { t: 'ctable', x: 12.0, y: 0.85, w: 1.0, d: 0.6 },
     { t: 'table', x: 15.5, y: 2.7, f: '+x', w: 3.0, d: 1.0, seats: 5, c: 'outdoor' },
     { t: 'plant', x: 13.6, y: -0.9 }, { t: 'plant', x: 18.0, y: -1.0 },
-    { t: 'table', x: 25.7, y: 8.6, f: '+x', w: 0.9, d: 0.9, seats: 1 },
+    { t: 'table', x: 26.9, y: 8.6, f: '+x', w: 0.9, d: 0.9, seats: 1 },
     // Вход
     { t: 'bench', x: 11.0, y: 14.95, w: 1.9, d: 0.45 },
     { t: 'plant', x: 13.6, y: 14.4 },
@@ -378,17 +386,17 @@ window.HOUSE = {
     // ===== Мансарда =====
     // Комната 6 и комната 5
     { lvl: 'attic', t: 'bed', x: 5.8, y: 3.42, f: '+x', w: 0.9, d: 2.0 },
-    { lvl: 'attic', t: 'desk', x: 4.25, y: 5.47, f: '+x', w: 1.4, d: 0.6 },
-    { lvl: 'attic', t: 'chair', x: 4.85, y: 5.47, f: '-x' },
-    { lvl: 'attic', t: 'armchair', x: 7.2, y: 5.57, f: '-y' },
+    { lvl: 'attic', t: 'desk', x: 4.25, y: 4.3, f: '+x', w: 1.4, d: 0.6 },
+    { lvl: 'attic', t: 'chair', x: 4.85, y: 4.3, f: '-x' },
+    { lvl: 'attic', t: 'armchair', x: 7.4, y: 4.4, f: '-x' },
     { lvl: 'attic', t: 'bed', x: 5.8, y: 9.24, f: '+x', w: 0.9, d: 2.0 },
-    { lvl: 'attic', t: 'desk', x: 4.25, y: 7.27, f: '+x', w: 1.4, d: 0.6 },
-    { lvl: 'attic', t: 'chair', x: 4.85, y: 7.27, f: '-x' },
-    { lvl: 'attic', t: 'armchair', x: 7.2, y: 7.07, f: '+y' },
+    { lvl: 'attic', t: 'desk', x: 4.25, y: 8.35, f: '+x', w: 1.4, d: 0.6 },
+    { lvl: 'attic', t: 'chair', x: 4.85, y: 8.35, f: '-x' },
+    { lvl: 'attic', t: 'armchair', x: 7.4, y: 8.3, f: '-x' },
     // Гардеробы 7 и 4
     { lvl: 'attic', t: 'wardrobe', x: 8.42, y: 4.32, f: '+x', w: 1.5, h: 2.0 },
     { lvl: 'attic', t: 'wardrobe', x: 10.57, y: 4.32, f: '-x', w: 1.5, h: 2.0 },
-    { lvl: 'attic', t: 'wardrobe', x: 8.42, y: 8.27, f: '+x', w: 1.4, h: 2.0 },
+    { lvl: 'attic', t: 'wardrobe', x: 8.32, y: 8.6, f: '+x', w: 1.4, d: 0.4, h: 2.0 },
     // Ванные 8 и 9
     { lvl: 'attic', t: 'tub', x: 11.95, y: 3.34, w: 1.7, d: 0.75 },
     { lvl: 'attic', t: 'toilet', x: 11.3, y: 4.57, f: '+x' },
@@ -403,25 +411,24 @@ window.HOUSE = {
     { lvl: 'attic', t: 'plant', x: 15.7, y: 13.2 },
     // Библиотека 11
     { lvl: 'attic', t: 'bookshelf', x: 22.8, y: 8.1, f: '-y', w: 3.6, d: 0.35, h: 2.0 },
-    { lvl: 'attic', t: 'armchair', x: 20.0, y: 7.5, f: '+y' },
-    { lvl: 'attic', t: 'armchair', x: 24.8, y: 7.3, f: '-y' },
-    { lvl: 'attic', t: 'floorlamp', x: 25.5, y: 7.9 },
+    { lvl: 'attic', t: 'armchair', x: 25.35, y: 7.25, f: '-x' },   // галерея узкая — кресло в дальнем конце, у витража
+    { lvl: 'attic', t: 'floorlamp', x: 25.6, y: 8.0 },
     // Спальня 12
     { lvl: 'attic', t: 'bed', x: 23.2, y: 11.3, f: '-y', w: 1.8, d: 2.1 },
     { lvl: 'attic', t: 'nightstand', x: 21.95, y: 12.1 }, { lvl: 'attic', t: 'nightstand', x: 24.45, y: 12.1 },
     { lvl: 'attic', t: 'cabinet', x: 25.55, y: 9.4, f: '-x', w: 1.6, d: 0.45, h: 0.8 },
-    { lvl: 'attic', t: 'armchair', x: 21.4, y: 9.3, f: '+x' },
+    { lvl: 'attic', t: 'armchair', x: 21.2, y: 11.2, f: '+x' },
     { lvl: 'attic', t: 'rug', x: 23.2, y: 10.6, w: 2.6, d: 2.0 },
     // Гардеробная 13
     { lvl: 'attic', t: 'wardrobe', x: 22.8, y: 12.82, f: '+y', w: 3.6, h: 2.0 },
     { lvl: 'attic', t: 'wardrobe', x: 22.8, y: 15.02, f: '-y', w: 3.6, h: 2.0 },
     // Ванная 3 — отдельно стоящая овальная ванна (как на плане)
-    { lvl: 'attic', t: 'tub', x: 22.6, y: 17.3, w: 1.8, d: 0.85, free: true },
+    { lvl: 'attic', t: 'tub', x: 23.2, y: 17.35, w: 1.8, d: 0.85, free: true },
     { lvl: 'attic', t: 'basin', x: 24.6, y: 18.17, f: '-y', w: 1.6, double: true },
     { lvl: 'attic', t: 'toilet', x: 22.8, y: 15.75, f: '+y' }, { lvl: 'attic', t: 'toilet', x: 23.5, y: 15.75, f: '+y' },
-    { lvl: 'attic', t: 'shower', x: 21.3, y: 15.95, w: 1.3, d: 0.95, f: '+y' },
+    { lvl: 'attic', t: 'shower', x: 21.1, y: 15.92, w: 1.0, d: 0.9, f: '+y' },
     // Кладовые 10 и 15
-    { lvl: 'attic', t: 'shelf', x: 19.25, y: 13.9, f: '+x', w: 2.4, d: 0.4, h: 1.4 },
+    { lvl: 'attic', t: 'shelf', x: 19.25, y: 14.4, f: '+x', w: 1.6, d: 0.4, h: 1.4 },
     { lvl: 'attic', t: 'shelf', x: 19.25, y: 16.95, f: '+x', w: 2.6, d: 0.4, h: 1.4 },
   ],
 };
