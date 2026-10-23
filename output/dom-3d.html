@@ -46,8 +46,9 @@
   <div class="row"><button data-view="walk-bs">🚶 Цоколь</button><button data-view="walk-gf">🚶 1 этаж</button><button data-view="walk-attic">🚶 Мансарда</button></div>
   <div class="row"><button data-view="doll-bs">🏠 Цоколь</button><button data-view="doll-gf">🏠 1 этаж</button><button data-view="doll-attic">🏠 Мансарда</button></div>
   <div class="row"><button id="bEdit">🪑 Двигать мебель</button></div>
-  <h2>Свет</h2>
-  <div class="row"><button id="bDay" class="on">☀ День</button><button id="bEve">🌙 Вечер</button></div>
+  <h2>Время суток</h2>
+  <div class="row"><button data-time="6">🌅 6:00</button><button data-time="9">9:00</button><button data-time="12" class="on">☀ 12:00</button></div>
+  <div class="row"><button data-time="18">🌇 18:00</button><button data-time="22">🌙 22:00</button><button data-time="2">2:00</button></div>
   <h2>Названия комнат (клавиша N)</h2>
   <div class="row"><button id="bNamesOn" class="on">🏷 Показать</button><button id="bNamesOff">✖ Скрыть</button></div>
   <h2>Качество картинки</h2>
@@ -272,6 +273,82 @@ MAT.suitRose = std({ color: 0xc39d90, roughness: 0.25, metalness: 0.8 });   MAT.
 MAT.suitBrown = std({ color: 0x5e4433, roughness: 0.5 });                   MAT.suitCream = std({ color: 0xe8e1d3, roughness: 0.4 });
 // спортзал
 MAT.gymDark = std({ map: TEX.plaster, color: 0x3a3b3e, roughness: 0.9 });
+MAT.bronze = std({ color: 0x7a5a3a, roughness: 0.35, metalness: 0.85 });   // бронзовые ручки
+MAT.terra = std({ color: 0xcf8c6c, roughness: 0.8 }); MAT.chipBlue = std({ color: 0xc9d0d2, roughness: 0.8 });
+MAT.leafBig = new THREE.MeshStandardMaterial({ color: 0x2c4729, roughness: 0.55, side: THREE.DoubleSide });   // крупные листья стрелиции
+MAT.leafBig2 = new THREE.MeshStandardMaterial({ color: 0x3e6036, roughness: 0.55, side: THREE.DoubleSide });
+MAT.leafStem = std({ color: 0x5a7250, roughness: 0.6 }); MAT.potConcrete = std({ map: TEX.concrete, color: 0x9a9da0, roughness: 0.9 });
+MAT.wallCream = std({ map: TEX.plaster, color: 0xf1e7d8, roughness: 0.9 });   // тёплый кремовый цвет стен мастерской (референс)
+// ---------- МФУ HP Color Laser MFP 178nw ----------
+MAT.printerWhite = std({ color: 0xf0f1f2, roughness: 0.4 });
+MAT.printerDark = std({ color: 0x3a3c3f, roughness: 0.5 });
+MAT.printerLid = std({ color: 0x6e7175, roughness: 0.4 });
+MAT.hpLogo = decalMat(128, 128, g => {
+  g.strokeStyle = '#a7abb0'; g.lineWidth = 9; g.beginPath(); g.arc(64, 64, 56, 0, 7); g.stroke();
+  g.fillStyle = '#a7abb0'; g.font = 'italic bold 64px Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('hp', 64, 66);
+}, { alphaTest: 0.3 });
+MAT.hpPanel = decalMat(352, 96, g => {   // панель: значки слева, монохромный экран, индикатор, круглая навигация, 3 кнопки (одна зелёная)
+  g.fillStyle = '#34363a'; g.fillRect(0, 0, 352, 96);
+  g.fillStyle = '#5b5f65'; for (let i = 0; i < 4; i++) g.fillRect(14 + (i % 2) * 18, 22 + Math.floor(i / 2) * 22, 12, 12);
+  g.fillStyle = '#16191c'; g.fillRect(64, 26, 92, 26); g.fillStyle = '#7c8ea0'; g.font = '12px monospace'; g.fillText('Ready', 72, 44);
+  g.fillStyle = '#b6e33c'; g.fillRect(98, 60, 24, 4);
+  g.strokeStyle = '#7a7e84'; g.lineWidth = 3; g.beginPath(); g.arc(196, 40, 20, 0, 7); g.stroke(); g.fillStyle = '#4a4d52'; g.beginPath(); g.arc(196, 40, 8, 0, 7); g.fill();
+  for (const [cx, cy, col] of [[262, 24, '#d0d2d4'], [300, 24, '#ffffff'], [262, 62, '#9aa0a6'], [300, 62, '#4fbf5a']]) { g.strokeStyle = col; g.lineWidth = 3; g.beginPath(); g.arc(cx, cy, 11, 0, 7); g.stroke(); }
+  g.fillStyle = '#e0602a'; g.beginPath(); g.arc(234, 24, 4, 0, 7); g.fill();
+});
+// ---------- туалет 1 этажа (референс заказчика): тёмно-синие стены, белые панели, плитка с синими звёздами ----------
+MAT.eucalyptus = new THREE.MeshStandardMaterial({ color: 0x7d9784, roughness: 0.7, side: THREE.DoubleSide });
+MAT.navyPaint = std({ map: TEX.plaster, color: 0x2b3653, roughness: 0.85 });
+MAT.wainscot = std({ color: 0xf2f0ea, roughness: 0.45 });
+MAT.amber = std({ color: 0x6a3510, roughness: 0.15 });
+MAT.cementTile = std({ roughness: 0.4, map: tex(512, 0.4, (g, p) => {   // цементная плитка 20 × 20 см: синяя восьмилучевая звезда, серые уголки
+  const T = p / 2, navy = '#22304f', grey = '#8f99ab';
+  const petal = (cx, cy, ang, len, wid, col) => {
+    g.save(); g.translate(cx, cy); g.rotate(ang); g.fillStyle = col; g.beginPath();
+    g.moveTo(0, 0); g.lineTo(wid, len * 0.5); g.lineTo(0, len); g.lineTo(-wid, len * 0.5); g.closePath(); g.fill(); g.restore();
+  };
+  for (let ty = 0; ty < 2; ty++) for (let tx = 0; tx < 2; tx++) {
+    const x0 = tx * T, y0 = ty * T, cx = x0 + T / 2, cy = y0 + T / 2;
+    g.fillStyle = '#ece5d6'; g.fillRect(x0, y0, T, T);
+    for (let k = 0; k < 8; k++) petal(cx, cy, k * Math.PI / 4, k % 2 ? T * 0.3 : T * 0.42, k % 2 ? T * 0.05 : T * 0.075, k % 2 ? grey : navy);
+    g.fillStyle = '#ece5d6'; g.beginPath(); g.arc(cx, cy, T * 0.04, 0, 7); g.fill();
+    for (const [qx, qy] of [[x0, y0], [x0 + T, y0], [x0, y0 + T], [x0 + T, y0 + T]]) {
+      const a0 = Math.atan2(cy - qy, cx - qx);
+      for (const da of [-0.5, 0, 0.5]) petal(qx, qy, a0 + da - Math.PI / 2, T * (da ? 0.16 : 0.22), T * 0.04, da ? grey : navy);
+    }
+    g.strokeStyle = 'rgba(120,110,95,.35)'; g.lineWidth = 2; g.strokeRect(x0, y0, T, T);
+  }
+  for (let i = 0; i < 6000; i++) { g.fillStyle = `rgba(${rnd() > 0.5 ? '255,255,255' : '60,50,40'},${rnd() * 0.05})`; g.fillRect(rnd() * p, rnd() * p, 2, 2); }
+}) });
+MAT.chinaBlue = std({ roughness: 0.15, map: tex(256, 0.25, (g, p) => {   // бело-синий фарфор для имбирной вазы
+  g.fillStyle = '#f4f3ef'; g.fillRect(0, 0, p, p); g.strokeStyle = '#2a3f7a'; g.fillStyle = '#2a3f7a';
+  for (let i = 0; i < 26; i++) { const x = rnd() * p, y = rnd() * p, s = 6 + rnd() * 14; g.lineWidth = 2; g.beginPath(); g.arc(x, y, s, 0, 7); g.stroke();
+    for (let k = 0; k < 5; k++) { g.beginPath(); g.ellipse(x + Math.cos(k * 1.26) * s * 0.55, y + Math.sin(k * 1.26) * s * 0.55, s * 0.28, s * 0.14, k * 1.26, 0, 7); g.fill(); } }
+}) });
+const canvasMat = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return std({ map: t, roughness: 0.6 }); };
+MAT.artBotan = canvasMat(256, 340, (g, W, H) => {   // ботаническая гравюра синим по кремовому
+  g.fillStyle = '#efe9dc'; g.fillRect(0, 0, W, H); g.strokeStyle = '#2b3a66'; g.fillStyle = '#2b3a66'; g.lineWidth = 2.5;
+  const stem = (x, y, len, ang, depth) => {
+    const x2 = x + Math.sin(ang) * len, y2 = y - Math.cos(ang) * len; g.beginPath(); g.moveTo(x, y); g.lineTo(x2, y2); g.stroke();
+    if (depth > 3) { g.beginPath(); g.ellipse(x2, y2, 5, 9, ang, 0, 7); g.fill(); return; }
+    for (let k = 0; k < 3; k++) { const t = 0.35 + k * 0.3, lx = x + (x2 - x) * t, ly = y + (y2 - y) * t;
+      g.beginPath(); g.ellipse(lx + Math.cos(ang) * 10 * (k % 2 ? 1 : -1), ly, 7, 3.5, ang + (k % 2 ? 0.6 : -0.6), 0, 7); g.fill(); }
+    stem(x2, y2, len * 0.7, ang - 0.45, depth + 1); stem(x2, y2, len * 0.7, ang + 0.4, depth + 1);
+  };
+  stem(W / 2, H - 40, 80, 0, 1);
+});
+MAT.artCoast = canvasMat(256, 340, (g, W, H) => {   // фото: скалистый берег и море
+  const sky = g.createLinearGradient(0, 0, 0, H * 0.45); sky.addColorStop(0, '#9fb7cc'); sky.addColorStop(1, '#dfe7ec'); g.fillStyle = sky; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#4f7591'; g.fillRect(0, H * 0.4, W, H * 0.25); g.fillStyle = '#6f93ab'; g.fillRect(0, H * 0.4, W, 6);
+  for (const [col, base, amp] of [['#6e5a48', 0.5, 0.18], ['#4a3b2f', 0.62, 0.22], ['#2e251e', 0.78, 0.2]]) {
+    g.fillStyle = col; g.beginPath(); g.moveTo(0, H);
+    for (let x = 0; x <= W; x += 8) g.lineTo(x, H * (base - amp * Math.abs(Math.sin(x / 37 + base * 9)) * (x / W)));
+    g.lineTo(W, H); g.fill();
+  }
+});
+MAT.drape = new THREE.MeshStandardMaterial({ map: TEX.fabric, color: 0xd9c4a3, roughness: 1, side: THREE.DoubleSide });   // плотные бежевые шторы
+MAT.tulle = new THREE.MeshStandardMaterial({ color: 0xfbf8f1, roughness: 1, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
 MAT.ceilWood = std({ map: TEX.larch, color: 0xd9c3a2, roughness: 0.8 });
 MAT.rubber = std({ map: TEX.concrete, color: 0x2a2b2d, roughness: 1 });
 MAT.platform = std({ map: TEX.larch, color: 0x9a8a72, roughness: 0.8 });
@@ -322,6 +399,140 @@ MAT.doorOak = std({ roughness: 0.55, map: tex(256, 0.8, (g, p) => {
   for (let i = 0; i < 90; i++) { g.strokeStyle = `rgba(${rnd() > 0.5 ? '140,105,65' : '245,225,195'},${0.08 + rnd() * 0.12})`; g.lineWidth = 1 + rnd() * 2; g.beginPath(); const y = rnd() * p; g.moveTo(0, y); g.bezierCurveTo(p / 3, y + (rnd() - 0.5) * 10, p * 2 / 3, y + (rnd() - 0.5) * 10, p, y + (rnd() - 0.5) * 6); g.stroke(); }
 }) });
 for (const [i, c] of [[1, 0xb0473f], [2, 0x2f5d8a], [3, 0xd8c9a7], [4, 0x6b8f71], [5, 0xc98a4b]].map(([i, c]) => [i, c])) MAT['fab' + i] = std({ map: TEX.fabric, color: c, roughness: 1 });
+
+// ---------- швейное оборудование JACK и парогенератор Malkan (по фото заказчика) ----------
+MAT.jackWhite = std({ color: 0xf4f5f6, roughness: 0.32 });
+MAT.jackBlue = std({ color: 0x1ea6dc, roughness: 0.35 });
+MAT.jackGrey = std({ color: 0xaab0b6, roughness: 0.35, metalness: 0.45 });
+MAT.jackFrame = std({ color: 0xe6e8ea, roughness: 0.4, metalness: 0.2 });       // светлая станина
+MAT.jackPad = std({ map: TEX.fabric, color: 0x2ea8d8, roughness: 0.9 });        // голубой чехол гладильного стола
+MAT.malkanBlue = std({ color: 0x1d2c9c, roughness: 0.18, metalness: 0.35 });    // синий лакированный бак парогенератора
+MAT.cork = std({ color: 0xd2c7b4, roughness: 0.85 });
+MAT.redPlastic = std({ color: 0xc8202a, roughness: 0.4 });
+// надписи и панели рисуются на холсте и клеятся на тонкие пластины (без фона — alphaTest)
+function decalMat(w, h, draw, o = {}) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return std({ map: t, roughness: 0.4, ...o });
+}
+const jackWord = (g, x, y, size, col, rot = 0) => {
+  g.save(); g.translate(x, y); g.rotate(rot); g.font = `italic 900 ${size}px Arial, sans-serif`; g.fillStyle = col;
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('JACK', 0, 0); g.restore();
+};
+MAT.jackLogo = decalMat(256, 64, g => jackWord(g, 128, 34, 56, '#1ea6dc'), { alphaTest: 0.3 });
+MAT.jackLogoW = decalMat(256, 64, g => jackWord(g, 128, 34, 56, '#ffffff'), { alphaTest: 0.3 });
+MAT.l5Label = decalMat(256, 64, g => { g.font = '500 44px Arial, sans-serif'; g.fillStyle = '#1ea6dc'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('L5-15F', 128, 34); }, { alphaTest: 0.3 });
+// столешница промышленного стола: светло-серая, синие уголки, линейка вдоль переднего края (низ холста = край к швее)
+const jackTop = (w, d, overlock) => decalMat(1024, Math.round(1024 * d / w), (g, W, H) => {
+  g.fillStyle = '#e4e6e8'; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 4000; i++) { g.fillStyle = `rgba(${rnd() > 0.5 ? '255,255,255' : '0,0,0'},${rnd() * 0.04})`; g.fillRect(rnd() * W, rnd() * H, 2, 2); }
+  g.fillStyle = '#1ea6dc';
+  g.beginPath(); g.moveTo(W * 0.03, H * 0.06); g.lineTo(W * 0.15, H * 0.06); g.lineTo(W * 0.1, H * 0.3); g.lineTo(0, H * 0.3); g.lineTo(0, H * 0.2); g.fill();
+  g.fillRect(W * 0.945, H * 0.06, W * 0.04, H * 0.5); jackWord(g, W * 0.965, H * 0.31, H * 0.1, '#ffffff', Math.PI / 2);
+  g.fillStyle = '#cfd3d7'; g.fillRect(W * 0.05, H * 0.86, W * 0.9, H * 0.1);   // линейка
+  g.strokeStyle = '#56606a'; g.lineWidth = 1.5;
+  for (let i = 0; i <= 100; i++) { const x = W * 0.06 + i * W * 0.88 / 100, l = i % 10 ? (i % 5 ? 0.025 : 0.04) : 0.06; g.beginPath(); g.moveTo(x, H * 0.865); g.lineTo(x, H * (0.865 + l)); g.stroke(); }
+  g.strokeRect(W * 0.05, H * 0.86, W * 0.9, H * 0.1);
+  if (overlock) {   // окно для обрезков и круглая крышка
+    g.fillStyle = '#9aa1a7'; g.fillRect(W * 0.2, H * 0.6, W * 0.13, H * 0.2); g.fillStyle = '#2b2e31'; g.fillRect(W * 0.215, H * 0.63, W * 0.1, H * 0.14);
+    g.fillStyle = '#b7bdc2'; g.beginPath(); g.arc(W * 0.42, H * 0.72, H * 0.04, 0, 7); g.fill();
+  }
+});
+MAT.jackTopS = jackTop(1.2, 0.6, false); MAT.jackTopO = jackTop(1.1, 0.55, true);
+// пульт сервомотора на стойке машинки: синий экран и кнопки
+MAT.jackPanel = decalMat(128, 192, g => {
+  g.fillStyle = '#8f979e'; g.fillRect(0, 0, 128, 192);
+  g.fillStyle = '#0d5ec9'; g.fillRect(16, 22, 96, 54); g.fillStyle = '#bfe6ff'; g.font = 'bold 30px monospace'; g.fillText('2100', 26, 60);
+  g.fillStyle = '#5b6168'; for (const [x, y] of [[36, 108], [64, 100], [92, 108], [36, 140], [64, 148], [92, 140]]) { g.beginPath(); g.arc(x, y, 11, 0, 7); g.fill(); }
+  g.fillStyle = '#36c06a'; g.beginPath(); g.arc(104, 172, 5, 0, 7); g.fill();
+});
+MAT.ovlPanel = decalMat(128, 64, g => { g.fillStyle = '#1ea6dc'; g.fillRect(0, 0, 128, 64); g.fillStyle = '#1b1d20'; g.fillRect(40, 10, 48, 44); g.fillStyle = '#ff5a3c'; g.font = 'bold 34px monospace'; g.fillText('88', 45, 45); });
+// пульт гладильного стола: выключатели и лампы
+MAT.l5Panel = decalMat(128, 96, g => {
+  g.fillStyle = '#3a3e43'; g.fillRect(0, 0, 128, 96); g.fillStyle = '#d9dde0'; g.fillRect(14, 20, 34, 56);
+  g.fillStyle = '#1b1d20'; g.fillRect(20, 28, 22, 40); g.fillStyle = '#d22a2a'; g.fillRect(74, 22, 32, 40); g.fillStyle = '#7d1414'; g.fillRect(74, 50, 32, 12);
+  g.fillStyle = '#ffffff'; g.font = '10px Arial'; g.fillText('ON / OFF', 70, 82);
+});
+// передняя панель Malkan: два клавишных выключателя, CE, лампы «нагрев/пар»
+MAT.malkanPanel = decalMat(512, 160, g => {
+  g.fillStyle = '#e9ecee'; g.fillRect(0, 0, 512, 160);
+  g.strokeStyle = '#b9bfc4'; g.lineWidth = 3; g.strokeRect(4, 4, 504, 152);
+  for (let i = 0; i < 4; i++) { g.fillStyle = '#c9ced2'; g.fillRect(10, 20 + i * 10, 26, 4); g.fillRect(476, 20 + i * 10, 26, 4); }
+  for (const x of [48, 168]) {
+    g.fillStyle = '#f7f8f9'; g.fillRect(x, 26, 70, 100); g.strokeStyle = '#8d949a'; g.strokeRect(x, 26, 70, 100);
+    g.fillStyle = '#d52222'; g.fillRect(x + 26, 38, 18, 14); g.fillStyle = '#2b7a4b'; g.fillRect(x + 24, 92, 22, 22);
+    g.fillStyle = '#555'; g.font = '14px Arial'; g.fillText('OFF', x + 50, 22); g.fillText('ON', x + 10, 146);
+  }
+  g.fillStyle = '#333'; g.font = 'bold 30px Arial'; g.fillText('CE', 124, 92);
+  for (const [y, a, b] of [[60, 'Su Yok', 'Hot Water'], [118, 'Buhar', 'Steam']]) {
+    g.fillStyle = '#7a1c1c'; g.beginPath(); g.arc(300, y, 10, 0, 7); g.fill();
+    g.fillStyle = '#444'; g.font = '13px Arial'; g.fillText(a, 252, y + 5); g.fillText(b, 316, y + 5);
+  }
+});
+MAT.gaugeFace = decalMat(128, 128, g => {
+  g.fillStyle = '#f4f6f8'; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill();
+  g.strokeStyle = '#2a2d30'; g.lineWidth = 2;
+  for (let i = 0; i <= 20; i++) { const a = Math.PI * 0.75 + i * Math.PI * 1.5 / 20, l = i % 5 ? 8 : 14; g.beginPath(); g.moveTo(64 + Math.cos(a) * 54, 64 + Math.sin(a) * 54); g.lineTo(64 + Math.cos(a) * (54 - l), 64 + Math.sin(a) * (54 - l)); g.stroke(); }
+  g.strokeStyle = '#1f4fa8'; g.lineWidth = 4; g.beginPath(); g.moveTo(64, 64); g.lineTo(98, 40); g.stroke();
+  g.fillStyle = '#222'; g.beginPath(); g.arc(64, 64, 6, 0, 7); g.fill();
+});
+// плетёный паровой шланг: чёрный с белыми штрихами
+MAT.hose = decalMat(128, 32, g => {
+  g.fillStyle = '#1b1c1e'; g.fillRect(0, 0, 128, 32);
+  g.fillStyle = '#e8e8e8'; for (let i = 0; i < 4; i++) g.fillRect(8 + i * 32, 6 + (i % 2) * 14, 12, 4);
+});
+MAT.hose.map.wrapS = MAT.hose.map.wrapT = THREE.RepeatWrapping; MAT.hose.map.repeat.set(70, 2); MAT.hose.roughness = 0.8;
+// ---------- интерьер мастерской (референсы заказчика): дуб, кварц, шалфей, букле, латунь, травертин ----------
+MAT.sage = std({ color: 0x98a38d, roughness: 0.55 });
+MAT.sageDark = std({ color: 0x6c7564, roughness: 0.6 });
+MAT.oakDark = std({ map: TEX.oak, color: 0x8a6b4c, roughness: 0.6 });
+MAT.boucle = std({ map: TEX.fabric, color: 0xf2ede3, roughness: 1 });
+MAT.travertine = std({ map: TEX.concrete, color: 0xeadfcc, roughness: 0.5 });
+MAT.pinLinen = std({ map: TEX.fabric, color: 0xd9cfbf, roughness: 1 });
+MAT.kraft = std({ color: 0xc8a77b, roughness: 0.9 });
+MAT.paper = std({ color: 0xf7f4ee, roughness: 0.9 });
+MAT.dried = new THREE.MeshStandardMaterial({ color: 0xcdb592, roughness: 0.9, side: THREE.DoubleSide });
+MAT.driedPink = new THREE.MeshStandardMaterial({ color: 0xc9a29a, roughness: 0.9, side: THREE.DoubleSide });
+MAT.imacSilver = std({ color: 0xdadcdf, roughness: 0.28, metalness: 0.7 });
+// тёплый отсвет LED-ленты на стене под полкой: яркий сверху, к низу исчезает
+MAT.ledWash = (() => { const c = document.createElement('canvas'); c.width = 8; c.height = 128; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 128);
+  gr.addColorStop(0, 'rgba(255,200,130,1)'); gr.addColorStop(0.3, 'rgba(255,205,150,0.45)'); gr.addColorStop(1, 'rgba(255,220,180,0)'); g.fillStyle = gr; g.fillRect(0, 0, 8, 128);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.55 }); })();
+MAT.quartz = std({ roughness: 0.15, map: tex(512, 1.8, (g, p) => {   // светлый кварц с мягкими серыми прожилками
+  g.fillStyle = '#eeeae3'; g.fillRect(0, 0, p, p);
+  for (let i = 0; i < 3000; i++) { g.fillStyle = `rgba(${rnd() > 0.5 ? '255,255,255' : '150,140,128'},${rnd() * 0.08})`; g.fillRect(rnd() * p, rnd() * p, 2, 2); }
+  for (let i = 0; i < 9; i++) {
+    g.strokeStyle = `rgba(140,135,128,${0.1 + rnd() * 0.18})`; g.lineWidth = 0.6 + rnd() * 1.8; g.beginPath();
+    let x = rnd() * p, y = 0; g.moveTo(x, y);
+    while (y < p) { const nx = x + (rnd() - 0.5) * 90, ny = y + 30 + rnd() * 60; g.quadraticCurveTo(x + (rnd() - 0.5) * 60, (y + ny) / 2, nx, ny); x = nx; y = ny; }
+    g.stroke();
+  }
+}) });
+// коврик для раскроя: шалфейный, сетка 1 см / 5 см, диагонали 45°
+MAT.cutmat = decalMat(768, 512, (g, W, H) => {
+  g.fillStyle = '#6f8b7d'; g.fillRect(0, 0, W, H);
+  for (let i = 0; i <= 120; i++) { const x = i * W / 120; g.strokeStyle = i % 5 ? 'rgba(255,255,255,.18)' : 'rgba(255,255,255,.5)'; g.lineWidth = i % 10 ? 1 : 2; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
+  for (let i = 0; i <= 80; i++) { const y = i * H / 80; g.strokeStyle = i % 5 ? 'rgba(255,255,255,.18)' : 'rgba(255,255,255,.5)'; g.lineWidth = i % 10 ? 1 : 2; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  g.strokeStyle = 'rgba(240,220,120,.45)'; g.lineWidth = 1.5; for (let i = -6; i < 12; i++) { g.beginPath(); g.moveTo(i * H / 4, H); g.lineTo(i * H / 4 + H, 0); g.stroke(); }
+}, { roughness: 0.7 });
+// экран iMac: программа для выкроек — детали лекал на белом поле
+MAT.imacScreen = (() => {
+  const m = decalMat(512, 288, (g, W, H) => {
+    g.fillStyle = '#e9ebee'; g.fillRect(0, 0, W, H); g.fillStyle = '#fbfbfc'; g.fillRect(70, 22, 360, 258);
+    g.fillStyle = '#d4d8dd'; g.fillRect(0, 0, W, 16); g.fillRect(440, 22, 66, 258);
+    for (const [c, x] of [['#ff5f57', 8], ['#febc2e', 20], ['#28c840', 32]]) { g.fillStyle = c; g.beginPath(); g.arc(x, 8, 4, 0, 7); g.fill(); }
+    g.fillStyle = '#c3c8ce'; for (let i = 0; i < 8; i++) g.fillRect(14, 30 + i * 28, 42, 18);
+    g.lineWidth = 2;
+    const piece = (pts, col) => { g.strokeStyle = col; g.fillStyle = col + '22'; g.beginPath(); g.moveTo(...pts[0]); for (const p of pts.slice(1)) g.lineTo(...p); g.closePath(); g.fill(); g.stroke(); };
+    piece([[100, 50], [170, 45], [190, 90], [175, 140], [185, 250], [95, 255], [105, 140], [90, 90]], '#2b6cb0');   // полочка
+    piece([[210, 45], [290, 45], [300, 95], [285, 140], [295, 255], [205, 255], [215, 140]], '#2b6cb0');            // спинка
+    piece([[320, 60], [410, 60], [420, 150], [395, 260], [335, 260], [312, 150]], '#c0392b');                       // рукав
+    g.strokeStyle = '#555'; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(140, 60); g.lineTo(140, 245); g.moveTo(250, 60); g.lineTo(250, 245); g.stroke();
+    for (let i = 0; i < 6; i++) { g.fillStyle = '#9aa3ad'; g.fillRect(448, 34 + i * 40, 50, 6); g.fillRect(448, 46 + i * 40, 36, 4); }
+  });
+  m.emissive = new THREE.Color(0xffffff); m.emissiveMap = m.map; m.emissiveIntensity = 0.55; m.roughness = 0.2; return m;
+})();
 
 // ---------- ковёр с крупным узором (как на присланном фото) ----------
 MAT.rug.map = tex(512, 2.4, (g, p) => {
@@ -618,7 +829,7 @@ function buildPortal(o, toS, M, t, grp, wall) {
     for (const z of [0.232, 0.399, 0.571]) leaf.push([B(lw - 0.1, 0.045, 0.04, lw / 2, Z(z)), wood]);
     leaf.push([B(0.02, 0.22, 0.07, lw - 0.1, 1.05), 'brass']);
     const hinge = side < 0 ? X(0.275) + 0.03 : X(0.725) - 0.03;
-    leaves.push({ pivot: [hinge, 0.01, -0.03], parts: leaf, closed: side < 0 ? 0 : Math.PI, open: side < 0 ? ang : Math.PI - ang });
+    leaves.push({ pivot: [hinge, 0.01, ang > 2 ? -t / 2 - 0.03 : -0.03], parts: leaf, closed: side < 0 ? 0 : Math.PI, open: side < 0 ? ang : Math.PI - ang });
   }
   makeDoor({ grp, M, w: wall, s0: X(0.275) + 0.03, s1: X(0.725) - 0.03, leaves, name: 'Дверь в мастерскую' });
 }
@@ -870,6 +1081,181 @@ const leafy = (r, x, y, z, mat = 'leaf') => {
   }
   return [mergeGeometries(parts), mat];
 };
+// тонкая трубка/нить по точкам (шланги, нитки, рычаги)
+const tube = (pts, r, mat, seg = 24, keepUV = false) =>
+  [new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(...p))), seg, r, 6), mat, keepUV];
+const decal = (w, h, mat, x, y, z, rx = 0, ry = 0) => [new THREE.PlaneGeometry(w, h).rotateX(rx).rotateY(ry).translate(x, y, z), mat, true];
+// промышленный стол JACK: столешница 4 см с рисунком, станина-«Т» со синими башмаками, педаль с тягой, коленоподъёмник
+function jackStand(w, d, topMat) {
+  const H = 0.76, T = 0.035, lx = w / 2 - 0.2, r = [
+    [RB(w, T, d, 0.012, 0, H - T, 0), 'jackGrey'],
+    decal(w - 0.016, d - 0.016, topMat, 0, H + 0.0015, 0, -Math.PI / 2),
+    [Bx(2 * lx, 0.1, 0.02, 0, 0.3, -0.06), 'jackFrame'], [Bx(2 * lx, 0.03, 0.05, 0, 0.03, 0.12), 'jackFrame'],
+    [RB(0.3, 0.06, 0.26, 0.01, -w / 2 + 0.24, H - T - 0.06, d / 2 - 0.16), 'jackGrey'],                      // ящик слева
+    [RB(0.16, 0.06, 0.12, 0.01, 0.02, H - T - 0.06, 0.02), 'jackGrey'],                                        // блок управления
+    [RB(0.28, 0.02, 0.22, 0.004).rotateX(0.1).translate(0, 0.045, 0.2), 'jackFrame'],                       // педаль
+    [Bx(0.22, 0.008, 0.17).rotateX(0.1).translate(0, 0.068, 0.2), 'jackBlue'],
+    [Cy(0.004, 0.6, 0.02, 0.07, 0.17), 'steel'],                                                               // тяга педали
+    tube([[0.16, H - T, 0.02], [0.17, 0.6, 0.06], [0.14, 0.5, 0.17], [0.1, 0.46, 0.21]], 0.007, 'chrome', 12),  // коленоподъёмник
+    [new THREE.CylinderGeometry(0.045, 0.045, 0.02, 20).rotateX(1.2).translate(0.09, 0.45, 0.22), 'matBlack']];
+  for (const sx of [-1, 1]) {
+    const x = sx * lx;
+    r.push([Bx(0.045, H - T - 0.06, 0.035, x, 0.03, -0.06), 'jackFrame'], [Bx(0.05, 0.035, d * 0.92, x, 0, 0), 'jackFrame'],
+           [Bx(0.06, 0.03, d * 0.8, x, H - T - 0.03, 0), 'jackFrame']);
+    for (const sz of [-1, 1]) r.push([RB(0.065, 0.05, 0.075, 0.012, x, 0, sz * (d * 0.46 - 0.02)), 'jackBlue']);
+  }
+  return r;
+}
+// стойка для ниток: штанга, полка с катушками, верхняя перекладина с направителями; нитки идут к машинке
+function threadStand(px, pz, H, n, toX, toY, toZ) {
+  const r = [[Cy(0.007, 1.45, px, H, pz), 'steel'], [Bx(0.36, 0.014, 0.035, px - 0.15, H + 0.42, pz), 'jackBlue'],
+             [Bx(0.34, 0.012, 0.03, px - 0.15, H + 1.4, pz), n > 2 ? 'steel' : 'jackBlue']];
+  for (let i = 0; i < n; i++) {
+    const sx = px - 0.06 - i * (0.28 / Math.max(1, n - 1)) * (n > 2 ? 1 : 0.6);
+    r.push([Cy(0.045, 0.008, sx, H + 0.434, pz, 0.045, 20), 'matBlack'], [Cy(0.003, 0.14, sx, H + 0.44, pz), 'steel'],
+           [new THREE.CylinderGeometry(0.022, 0.036, 0.12, 20).translate(sx, H + 0.502, pz), i % 2 ? 'plasticGrey' : 'white'],
+           tube([[sx, H + 0.56, pz], [sx, H + 1.39, pz], [px - 0.02, H + 1.4, pz + 0.01], [toX + i * 0.01, toY, toZ]], 0.0012, 'white', 8));
+  }
+  return r;
+}
+// прямострочная машинка JACK (корпус «С»: головка слева, рукав, стойка справа, сервомотор и маховик)
+function jackLockstitch(mx, H, mz) {
+  const s = new THREE.Shape();
+  s.moveTo(-0.25, 0.05); s.lineTo(-0.17, 0.05); s.lineTo(-0.17, 0.16); s.quadraticCurveTo(-0.17, 0.18, -0.14, 0.18);
+  s.lineTo(0.09, 0.18); s.quadraticCurveTo(0.12, 0.18, 0.125, 0.14); s.lineTo(0.13, 0); s.lineTo(0.25, 0); s.lineTo(0.25, 0.29);
+  s.quadraticCurveTo(0.25, 0.33, 0.2, 0.33); s.lineTo(-0.21, 0.335); s.quadraticCurveTo(-0.25, 0.335, -0.25, 0.3); s.lineTo(-0.25, 0.05);
+  const y0 = H + 0.014, fz = mz + 0.075 + 0.012;
+  const body = new THREE.ExtrudeGeometry(s, { depth: 0.15, bevelEnabled: true, bevelSize: 0.01, bevelThickness: 0.012, bevelSegments: 3, curveSegments: 10 })
+    .translate(mx, y0, mz - 0.075);
+  const sw = new THREE.Shape(); sw.moveTo(-0.2, 0.31); sw.lineTo(0.1, 0.3); sw.quadraticCurveTo(0.2, 0.29, 0.24, 0.24); sw.lineTo(0.24, 0.27);
+  sw.quadraticCurveTo(0.2, 0.322, 0.1, 0.325); sw.lineTo(-0.2, 0.328);
+  return [
+    [RB(0.5, 0.014, 0.18, 0.004, mx, H, mz), 'jackWhite'], [Bx(0.07, 0.003, 0.05, mx - 0.21, y0, mz + 0.02), 'chrome'],   // платформа, игольная пластина
+    [body, 'jackWhite'],
+    [RB(0.012, 0.27, 0.165, 0.004, mx - 0.262, y0 + 0.055, mz), 'jackBlue'],                                             // синяя крышка головки
+    [new THREE.ShapeGeometry(sw, 8).translate(mx, y0, fz + 0.0015), 'jackBlue'],                                           // синяя волна на рукаве
+    decal(0.12, 0.03, 'jackLogo', mx - 0.11, y0 + 0.255, fz + 0.002),
+    decal(0.075, 0.11, 'jackPanel', mx + 0.19, y0 + 0.16, fz + 0.002),
+    [new THREE.CylinderGeometry(0.024, 0.024, 0.016, 24).rotateX(Math.PI / 2).translate(mx + 0.04, y0 + 0.23, fz + 0.008), 'jackBlue'],   // регулятор стежка
+    [new THREE.CylinderGeometry(0.012, 0.012, 0.03, 16).rotateX(Math.PI / 2).translate(mx - 0.2, y0 + 0.2, fz + 0.012), 'chrome'],        // натяжитель нити
+    [RB(0.07, 0.24, 0.17, 0.02, mx + 0.29, y0 + 0.02, mz), 'jackGrey'],                                                  // корпус мотора
+    [new THREE.CylinderGeometry(0.068, 0.068, 0.035, 32).rotateZ(Math.PI / 2).translate(mx + 0.34, y0 + 0.22, mz), 'jackGrey'],   // маховик
+    [new THREE.CylinderGeometry(0.04, 0.04, 0.04, 24).rotateZ(Math.PI / 2).translate(mx + 0.345, y0 + 0.22, mz), 'matBlack'],
+    [Cy(0.005, 0.06, mx - 0.21, y0 - 0.005, mz + 0.02), 'chrome'], [Bx(0.022, 0.008, 0.035, mx - 0.21, y0 + 0.003, mz + 0.022), 'chrome'],   // игловодитель и лапка
+    [Cy(0.004, 0.05, mx - 0.23, y0 + 0.33, mz + 0.03), 'steel'], [Cy(0.008, 0.02, mx - 0.05, y0 + 0.335, mz + 0.02), 'steel'],
+    [Cy(0.012, 0.025, mx + 0.08, y0 + 0.335, mz + 0.03), 'steel'], [Cy(0.008, 0.03, mx + 0.16, y0 + 0.335, mz - 0.02), 'steel']];   // нитенаправители, моталка
+}
+// оверлок JACK (4 нити): белый корпус, серый кожух мотора с маховиком справа, 4 регулятора натяжения спереди
+function jackOverlock(mx, H, mz) {
+  const y0 = H + 0.012, fz = mz + 0.12, r = [
+    [RB(0.36, 0.012, 0.26, 0.004, mx, H, mz), 'jackWhite'],
+    [RB(0.27, 0.25, 0.24, 0.04, mx - 0.01, y0, mz), 'jackWhite'],
+    [RB(0.09, 0.27, 0.26, 0.03, mx + 0.17, y0, mz), 'jackGrey'],
+    [new THREE.CylinderGeometry(0.066, 0.066, 0.035, 32).rotateZ(Math.PI / 2).translate(mx + 0.23, y0 + 0.1, mz + 0.02), 'jackGrey'],
+    [new THREE.CylinderGeometry(0.05, 0.05, 0.045, 12).rotateZ(Math.PI / 2).translate(mx + 0.235, y0 + 0.1, mz + 0.02), 'white'],
+    [new THREE.CylinderGeometry(0.014, 0.014, 0.05, 12).rotateZ(Math.PI / 2).translate(mx + 0.25, y0 + 0.1, mz + 0.02), 'plasticGrey'],
+    [RB(0.1, 0.17, 0.12, 0.02, mx - 0.18, y0 + 0.04, mz + 0.05), 'jackWhite'],                       // головка с иглами
+    [RB(0.14, 0.014, 0.12, 0.004, mx - 0.21, y0 + 0.03, mz + 0.06), 'matBlack'],                      // пластина для ткани
+    [RB(0.09, 0.11, 0.02, 0.006, mx - 0.08, y0 + 0.01, fz + 0.005), 'jackWhite'],                     // дверца петлителей
+    [Bx(0.24, 0.05, 0.004, mx + 0.0, y0 + 0.15, fz + 0.002), 'jackBlue'],
+    decal(0.09, 0.024, 'jackLogoW', mx + 0.0, y0 + 0.175, fz + 0.0045),
+    decal(0.045, 0.025, 'ovlPanel', mx + 0.085, y0 + 0.175, fz + 0.0045),
+    [Cy(0.006, 0.05, mx - 0.19, y0 - 0.01, mz + 0.06), 'chrome'],
+    [Bx(0.16, 0.008, 0.014, mx - 0.02, y0 + 0.25, mz + 0.02), 'steel'], [Cy(0.01, 0.04, mx - 0.12, y0 + 0.25, mz - 0.03), 'brass'],
+    [Cy(0.022, 0.004, mx - 0.07, y0 + 0.25, mz - 0.04, 0.022, 20), 'matBlack'], [Cy(0.022, 0.004, mx + 0.03, y0 + 0.25, mz - 0.04, 0.022, 20), 'matBlack']];
+  for (let i = 0; i < 4; i++) {   // ступенчатые серые ручки натяжения
+    const x = mx - 0.175 + i * 0.033, y = y0 + 0.215 - i * 0.032;
+    r.push([new THREE.CylinderGeometry(0.017, 0.017, 0.03, 16).rotateX(Math.PI / 2).translate(x, y, fz + 0.015), 'plasticGrey'],
+           [new THREE.CylinderGeometry(0.012, 0.013, 0.03, 16).rotateX(Math.PI / 2).translate(x, y, fz + 0.04), 'plasticGrey']);
+  }
+  return r;
+}
+// утюг промышленный: хромированная подошва-«капля», синяя термонакладка, пробковая ручка, кнопка пара
+function steamIron(x, y, z) {
+  const s = new THREE.Shape(); s.moveTo(-0.13, 0); s.quadraticCurveTo(-0.06, 0.07, 0.06, 0.068); s.quadraticCurveTo(0.11, 0.066, 0.11, 0.03);
+  s.lineTo(0.11, -0.03); s.quadraticCurveTo(0.11, -0.066, 0.06, -0.068); s.quadraticCurveTo(-0.06, -0.07, -0.13, 0);
+  const sole = new THREE.ExtrudeGeometry(s, { depth: 0.012, bevelEnabled: true, bevelSize: 0.004, bevelThickness: 0.004, bevelSegments: 2, curveSegments: 12 }).rotateX(-Math.PI / 2).translate(x, y + 0.004, z);
+  const dome = new THREE.ExtrudeGeometry(s, { depth: 0.012, bevelEnabled: true, bevelSize: 0.008, bevelThickness: 0.014, bevelSegments: 4, curveSegments: 12 }).scale(0.8, 0.8, 1).rotateX(-Math.PI / 2).translate(x + 0.005, y + 0.02, z);
+  return [[sole, 'chrome'], [dome, 'chrome'],
+    [RB(0.11, 0.008, 0.07, 0.003, x - 0.01, y + 0.05, z), 'malkanBlue'],
+    [RB(0.035, 0.1, 0.06, 0.01, x + 0.075, y + 0.045, z), 'matBlack'],                                      // задняя стойка ручки
+    tube([[x - 0.06, y + 0.05, z], [x - 0.065, y + 0.1, z], [x - 0.05, y + 0.135, z]], 0.006, 'chrome', 8),   // передняя стойка
+    [new THREE.CylinderGeometry(0.017, 0.017, 0.13, 16).rotateZ(Math.PI / 2).translate(x + 0.01, y + 0.14, z), 'cork'],
+    [RB(0.06, 0.04, 0.045, 0.008, x - 0.07, y + 0.13, z), 'matBlack'], [Bx(0.03, 0.006, 0.03, x - 0.075, y + 0.17, z), 'redPlastic']];
+}
+// парогенератор Malkan MINI2035: синий бак снизу, белый корпус сверху, панель с манометром, утюг сверху, шланг вокруг
+function malkanMini(gx, py, gz) {
+  const fz = gz + 0.145, r = [
+    [RB(0.34, 0.14, 0.28, 0.025, gx, py, gz), 'malkanBlue'],
+    [RB(0.35, 0.135, 0.29, 0.04, gx, py + 0.135, gz), 'jackWhite'],
+    [Bx(0.3, 0.004, 0.002, gx, py + 0.15, fz + 0.001), 'plasticGrey'],
+    decal(0.2, 0.065, 'malkanPanel', gx - 0.055, py + 0.215, fz + 0.002),
+    [new THREE.TorusGeometry(0.03, 0.006, 8, 28).translate(gx + 0.095, py + 0.215, fz + 0.004), 'chrome'],
+    [new THREE.CircleGeometry(0.029, 28).translate(gx + 0.095, py + 0.215, fz + 0.003), 'gaugeFace', true],
+    [RB(0.24, 0.006, 0.17, 0.003, gx - 0.02, py + 0.27, gz - 0.01), 'plasticGrey'],                      // подставка под утюг
+    [Cy(0.026, 0.006, gx + 0.13, py + 0.27, gz + 0.075, 0.026, 20), 'redPlastic'], [Cy(0.02, 0.045, gx + 0.13, py + 0.276, gz + 0.075, 0.022, 16), 'white'],   // заливная пробка
+    [RB(0.02, 0.05, 0.035, 0.005, gx + 0.18, py + 0.17, gz + 0.04), 'white'],                            // защёлка сбоку
+    ...steamIron(gx - 0.03, py + 0.276, gz - 0.02),
+    tube([[gx - 0.12, py + 0.45, gz - 0.02], [gx - 0.17, py + 0.5, gz + 0.02], [gx - 0.23, py + 0.38, gz + 0.08], [gx - 0.2, py + 0.14, gz + 0.15],
+          [gx - 0.05, py + 0.1, gz + 0.165], [gx + 0.12, py + 0.13, gz + 0.16], [gx + 0.2, py + 0.16, gz + 0.02], [gx + 0.16, py + 0.1, gz - 0.15]], 0.008, 'hose', 90, true),
+    tube([[gx + 0.18, py + 0.06, gz + 0.06], [gx + 0.24, py + 0.02, gz + 0.1], [gx + 0.24, py - 0.2, gz + 0.06], [gx + 0.22, py - 0.4, gz - 0.05]], 0.004, 'black', 16)];   // сетевой шнур
+  return r;
+}
+// ваза из белой керамики с сухоцветами: веерные пальмовые листья и метёлки пампасной травы; s — масштаб
+function driedVase(x, y, z, s = 1, seed = 0) {
+  const prof = [[0.001, 0], [0.09, 0.005], [0.13, 0.08], [0.14, 0.18], [0.11, 0.3], [0.06, 0.38], [0.055, 0.44], [0.07, 0.47], [0.001, 0.47]]
+    .map(([a, b]) => new THREE.Vector2(a * s, b * s));
+  const r = [[new THREE.LatheGeometry(prof, 28).translate(x, y, z), 'ceramic']], top = y + 0.46 * s;
+  for (let i = 0; i < 7; i++) {
+    const a = (i + seed) * 2.4, tilt = 0.25 + (i % 3) * 0.18, len = (0.35 + (i % 4) * 0.09) * s;
+    const dx = Math.sin(a) * Math.sin(tilt) * len, dz = Math.cos(a) * Math.sin(tilt) * len, dy = Math.cos(tilt) * len;
+    r.push(tube([[x, top - 0.05 * s, z], [x + dx * 0.5, top + dy * 0.5, z + dz * 0.5], [x + dx, top + dy, z + dz]], 0.003 * s + 0.001, 'dried', 6));
+    if (i % 2 === 0) r.push([new THREE.CircleGeometry(0.16 * s, 14, 0, Math.PI * 0.75).rotateZ(Math.PI * 0.12).rotateY(a).rotateX(tilt * 0.5)
+      .translate(x + dx, top + dy, z + dz), i % 4 ? 'driedPink' : 'dried']);
+    else r.push([new THREE.SphereGeometry(1, 8, 6).scale(0.03 * s, 0.13 * s, 0.03 * s).rotateZ(Math.sin(a) * tilt).rotateX(Math.cos(a) * tilt)
+      .translate(x + dx * 1.05, top + dy * 1.05, z + dz * 1.05), 'dried']);
+  }
+  return r;
+}
+// iMac 24": подставка, корпус 547 × 415 мм, белая рамка, экран; клавиатура и мышь перед ним
+function imacSet(x, y, mz) {
+  return [[Bx(0.15, 0.006, 0.15, x, y, mz + 0.02), 'imacSilver'], [Bx(0.13, 0.22, 0.008).rotateX(-0.2).translate(x, y + 0.005, mz - 0.03), 'imacSilver'],
+    [RB(0.547, 0.415, 0.012, 0.005, x, y + 0.1, mz - 0.03), 'imacSilver'],
+    [new THREE.PlaneGeometry(0.547, 0.36).translate(x, y + 0.1 + 0.415 - 0.18, mz - 0.023), 'white'],
+    [new THREE.PlaneGeometry(0.52, 0.295).translate(x, y + 0.1 + 0.415 - 0.165, mz - 0.0225), 'imacScreen', true],
+    [RB(0.28, 0.008, 0.115, 0.004, x - 0.03, y, mz + 0.26), 'imacSilver'], [Bx(0.26, 0.002, 0.095, x - 0.03, y + 0.008, mz + 0.26), 'white'],
+    [new THREE.SphereGeometry(1, 16, 10).scale(0.03, 0.012, 0.055).translate(x + 0.24, y + 0.006, mz + 0.26), 'white']];
+}
+// МФУ HP Color Laser MFP 178nw (4ZB96A) по фото заказчика: 406 × 363 × 290 мм. Белый низ с дверцей, ручкой-нишей,
+// логотипом hp и лотком с прорезью; тёмная полоса выхода бумаги; тёмный сканер с серой крышкой; спереди справа
+// наклонная панель с экраном и кнопками; слева решётки вентиляции. x, y, z — центр основания, лицом к +Z.
+function hpPrinter(x, y, z) {
+  const W = 0.406, D = 0.363, fz = z + D / 2, r = [
+    [RB(W, 0.19, D, 0.012, x, y, z), 'printerWhite'],
+    [RB(W - 0.004, 0.055, D - 0.004, 0.006, x, y + 0.185, z), 'printerDark'],
+    [RB(W, 0.035, D - 0.02, 0.006, x, y + 0.236, z - 0.01), 'printerDark'],
+    [RB(W, 0.02, D - 0.11, 0.008, x, y + 0.27, z - 0.055), 'printerLid'],                                   // крышка сканера
+    [RB(W * 0.62, 0.032, 0.1, 0.008).rotateX(0.12).translate(x + W * 0.19, y + 0.236, fz - 0.05), 'printerDark'],   // панель управления
+    decal(0.22, 0.06, 'hpPanel', x + W * 0.19, y + 0.27, fz - 0.045, -Math.PI / 2 + 0.12),
+    [Bx(W - 0.03, 0.06, 0.004, x, y + 0.185, fz - 0.03), 'black'],                                          // глубина выхода бумаги
+    [RB(0.16, 0.012, 0.012, 0.004, x + 0.05, y + 0.175, fz), 'printerWhite'],                               // кромка дверцы
+    [RB(0.11, 0.035, 0.006, 0.005, x + 0.05, y + 0.135, fz + 0.002), 'plasticGrey'],                        // ручка-ниша
+    decal(0.045, 0.045, 'hpLogo', x + 0.05, y + 0.085, fz + 0.002),
+    [Bx(W - 0.02, 0.002, 0.002, x, y + 0.045, fz + 0.001), 'plasticGrey'],                                  // шов лотка
+    [Bx(0.11, 0.022, 0.004, x + 0.02, y + 0.012, fz + 0.001), 'black'],                                     // прорезь лотка
+    [Bx(0.002, 0.15, 0.002, x - W / 2 + 0.11, y + 0.045, fz + 0.001), 'plasticGrey']];                     // край дверцы слева
+  for (let i = 0; i < 11; i++) r.push([Bx(0.002, 0.004, 0.08, x - W / 2 - 0.001, y + 0.07 + i * 0.009, z - 0.07), 'printerDark']);   // решётка сбоку
+  for (let i = 0; i < 5; i++) r.push([Bx(0.002, 0.004, 0.07, x - W / 2 - 0.001, y + 0.2 + i * 0.008, z - 0.06), 'black']);
+  return r;
+}
+// изогнутая спинка (кольцевой сектор, выдавленный вверх): r0/r1 — внутренний/внешний радиус, span — охват
+function curvedBack(r0, r1, span, h, y, bevel = 0.03) {
+  const s = new THREE.Shape(), a0 = Math.PI / 2 - span / 2, a1 = Math.PI / 2 + span / 2;
+  s.absarc(0, 0, r1, a0, a1, false); s.absarc(0, 0, r0, a1, a0, true);
+  return new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 4, curveSegments: 28 })
+    .rotateX(-Math.PI / 2).translate(0, y + bevel, 0);
+}
+
 const BUILD = {
   bed(o) {
     const w = o.w || 1.6, d = o.d || 2.1, r = [
@@ -1124,29 +1510,36 @@ const BUILD = {
     return r;
   },
   // ---------- швейная мастерская ----------
-  ironing() {   // ВТО: гладильный стол с подсветкой формы «нос», утюг на подставке, парогенератор рядом
-    const r = [[RB(1.3, 0.035, 0.42, 0.015, -0.1, 0.88), 'fabric2'], [new THREE.CylinderGeometry(0.21, 0.21, 0.035, 24, 1, false, 0, Math.PI).rotateY(-Math.PI / 2).translate(0.55, 0.9, 0), 'fabric2'],
-      [Bx(0.04, 0.88, 0.04, -0.6, 0, -0.15), 'chrome'], [Bx(0.04, 0.88, 0.04, -0.6, 0, 0.15), 'chrome'], [Bx(0.04, 0.88, 0.04, 0.35, 0, -0.15), 'chrome'], [Bx(0.04, 0.88, 0.04, 0.35, 0, 0.15), 'chrome'],
-      [Bx(1.0, 0.02, 0.32, -0.12, 0.25), 'chrome'],
-      [RB(0.26, 0.12, 0.12, 0.05, -0.55, 0.92, 0.05), 'white'], [RB(0.2, 0.012, 0.11, 0.005, -0.55, 0.915, 0.05), 'chrome'],
-      [RB(0.42, 0.28, 0.3, 0.05, -0.1, 0.27, 0), 'white'], [Cy(0.008, 0.6, -0.3, 0.55, -0.1), 'black']];   // парогенератор на полке + шланг
+  ironing() {   // гладильный стол Jack L5-15F-F81 (150 × 80 см, высота 90): тумба с пультом, колонна, рукавная колодка слева;
+                // справа — стальная площадка под парогенератор Malkan MINI2035 с утюгом
+    const W = 1.5, D = 0.8, H = 0.9, pz = 0.27, r = [
+      [RB(W, 0.06, D, 0.03, 0, H - 0.06, 0), 'jackPad'],                                        // подушка в голубом чехле
+      [Bx(W - 0.05, 0.09, D - 0.05, 0, H - 0.15, 0), 'jackWhite'],                               // белая рама под подушкой
+      [RB(0.5, H - 0.19, 0.56, 0.008, 0.12, 0.04, -0.02), 'jackWhite'],                          // тумба (вакуум/обдув)
+      [Bx(0.003, H - 0.25, 0.002, 0.2, 0.08, pz), 'plasticGrey'],                                // шов дверцы
+      [Bx(0.008, H - 0.32, 0.003, 0.215, 0.12, pz + 0.001), 'jackBlue'],                         // синяя полоса
+      decal(0.17, 0.045, 'jackLogo', 0.02, 0.6, pz + 0.002), decal(0.09, 0.024, 'l5Label', -0.03, 0.16, pz + 0.002),
+      decal(0.09, 0.068, 'l5Panel', 0.29, 0.6, pz + 0.002),
+      [RB(0.5, 0.03, 0.2, 0.006, 0.12, 0.012, pz + 0.1), 'jackWhite'],
+      [Bx(0.44, 0.012, 0.22).rotateX(-0.22).translate(0.12, 0.06, pz + 0.12), 'jackWhite'],      // педаль вакуума
+      [RB(0.26, 1.72, 0.22, 0.01, -0.06, 0.0, -0.5), 'jackWhite'],                              // колонна сзади
+      decal(0.15, 0.04, 'jackLogo', -0.06, 1.52, -0.389),
+      [RB(0.52, 0.06, 0.12, 0.01, -0.45, 0.99, -0.5), 'jackWhite'],                             // кронштейн рукавной колодки
+      [RB(0.56, 0.05, 0.17, 0.025, -0.65, 1.05, -0.5), 'jackPad'],                              // рукавная колодка
+      [new THREE.CylinderGeometry(0.085, 0.085, 0.05, 24, 1, false, Math.PI, Math.PI).translate(-0.93, 1.075, -0.5), 'jackPad'],
+      [RB(0.42, 0.02, 0.42, 0.005, W / 2 + 0.23, 0.84, -0.14), 'steel'],                        // площадка под парогенератор
+      [Bx(0.42, 0.03, 0.006, W / 2 + 0.23, 0.86, 0.07), 'steel'], [Bx(0.006, 0.03, 0.42, W / 2 + 0.44, 0.86, -0.14), 'steel'],   // бортики
+      [Bx(0.78, 0.035, 0.04, 0.76, 0.8, -0.14), 'jackWhite'],                                     // консоль от тумбы
+      tube([[0.37, 0.4, -0.14], [1.0, 0.8, -0.14]], 0.014, 'jackWhite', 2),
+      ...malkanMini(W / 2 + 0.22, 0.86, -0.14)];
+    for (const [sx, sz] of [[-0.1, -0.24], [0.34, -0.24], [-0.1, 0.2], [0.34, 0.2]]) r.push([Cy(0.022, 0.04, sx, 0, sz), 'matBlack']);
     return r;
   },
-  sewtable(o) {   // стол со швейной машинкой (или оверлоком) и лампой
-    const w = o.w || 1.3, d = 0.65, r = [[RB(w, 0.04, d, 0.01, 0, 0.72), 'oak'], ...legs4(w, d, 0.72, 0.05, 0.02, 'matBlack')];
-    if (o.overlock) {
-      r.push([RB(0.32, 0.26, 0.28, 0.05, 0, 0.76, 0), 'white'], [RB(0.3, 0.02, 0.2, 0.01, 0, 0.76, 0.06), 'plasticGrey']);
-      for (let i = 0; i < 4; i++) r.push([Cy(0.025, 0.08, -0.09 + i * 0.06, 1.02, -0.08), 'fab' + (1 + i)], [Cy(0.003, 0.35, -0.09 + i * 0.06, 1.1, -0.08), 'chrome']);
-    } else {
-      r.push([RB(0.46, 0.07, 0.2, 0.02, 0, 0.76, 0), 'white'],       // основание
-             [RB(0.1, 0.24, 0.18, 0.03, 0.17, 0.82, 0), 'white'],      // стойка
-             [RB(0.44, 0.09, 0.18, 0.04, 0.0, 1.05, 0), 'white'],       // рукав
-             [RB(0.1, 0.2, 0.18, 0.03, -0.18, 0.92, 0), 'white'],       // головка
-             [Cy(0.003, 0.08, -0.18, 0.84, 0.03), 'chrome'], [new THREE.CylinderGeometry(0.06, 0.06, 0.03, 20).rotateZ(Math.PI / 2).translate(0.235, 1.0, 0), 'plasticGrey'],
-             [Cy(0.025, 0.05, 0.08, 1.14, 0), 'fab3']);                 // катушка ниток
-    }
-    r.push([Cy(0.06, 0.02, w / 2 - 0.15, 0.76, -0.2), 'matBlack'], [Cy(0.01, 0.45, w / 2 - 0.15, 0.78, -0.2), 'matBlack'], [Cy(0.04, 0.1, w / 2 - 0.15, 1.2, -0.1, 0.07, 16), 'lamp'],
-           [Bx(0.3, 0.06, 0.2, -w / 2 + 0.2, 0.76, -0.12), 'fab5']);    // стопка лоскутов
+  sewtable(o) {   // промышленный стол JACK: прямострочка (по умолчанию) или оверлок (overlock: true), стойка для ниток
+    const w = o.w || (o.overlock ? 1.1 : 1.2), d = o.d || (o.overlock ? 0.55 : 0.6), H = 0.76;
+    const r = jackStand(w, d, o.overlock ? 'jackTopO' : 'jackTopS');
+    if (o.overlock) r.push(...jackOverlock(0.08, H, -0.02), ...threadStand(w / 2 - 0.12, -d / 2 + 0.07, H, 4, 0.04, H + 0.27, -0.02));
+    else r.push(...jackLockstitch(0.12, H, -0.04), ...threadStand(w / 2 - 0.14, -d / 2 + 0.07, H, 2, -0.1, H + 0.35, -0.02));
     return r;
   },
   cuttable(o) {   // раскроечный стол высотой 90 см с коврик-резаком и ящиками под ткани
@@ -1169,6 +1562,432 @@ const BUILD = {
     }
     return r;
   },
+  // ---------- интерьер мастерской по референсам заказчика ----------
+  cutisland(o) {   // раскроечный остров 2,4 × 1,2, высота 92 см: светлый дуб, столешница из кварца; спереди ящики с латунными
+                   // ручками-рамками для этикеток и ниши с корзинами, сзади ниши под рулоны; торцы — лекальная бумага и линейки
+    const w = o.w || 2.4, d = o.d || 1.2, H = 0.92, T = 0.04, bw = w - 0.12, bd = d - 0.12, bh = H - T, zf = bd / 2, r = [
+      [Bx(bw - 0.1, 0.08, bd - 0.1, 0, 0, 0), 'black'],                                   // утопленный цоколь
+      [Bx(bw, bh - 0.08, 0.2, 0, 0.08, 0), 'oakDark'],                                      // хребет (задняя стенка ниш)
+      [RB(w, T, d, 0.008, 0, bh, 0), 'quartz']];
+    for (const s of [-1, 1]) r.push([Bx(0.03, bh - 0.08, bd, s * (bw / 2 - 0.015), 0.08, 0), 'oak'],   // торцевые панели
+                                    [Bx(0.008, bh - 0.18, bd - 0.12, s * (bw / 2 + 0.004), 0.13, 0), 'oak']);   // филёнка
+    const pull = (x, y, z, s, label) => {
+      r.push([Bx(0.1, 0.035, 0.012, x, y, z + s * 0.006), 'brass']);
+      if (label) r.push([Bx(0.064, 0.018, 0.002, x, y + 0.009, z + s * 0.0125), 'paper']);
+    };
+    const side = (s, cols) => {
+      let x = -bw / 2 + 0.03;
+      for (const c of cols) {
+        const cx = x + c.w / 2, dep = zf - 0.1, zc = s * (0.1 + dep / 2);
+        if (c.k === 'dr') {   // ящики
+          r.push([Bx(c.w, bh - 0.08, dep, cx, 0.08, zc), 'oakDark']);
+          const dh = (bh - 0.09) / c.n;
+          for (let i = 0; i < c.n; i++) {
+            const y = 0.085 + i * dh;
+            r.push([RB(c.w - 0.008, dh - 0.008, 0.02, 0.003, cx, y + 0.004, s * (zf + 0.01)), 'oak'],
+                   [RB(c.w - 0.09, dh - 0.09, 0.006, 0.002, cx, y + 0.045, s * (zf + 0.022)), 'oak']);   // филёнка «шейкер»
+            if (c.two) { pull(cx - c.w / 4, y + dh / 2 - 0.02, s * (zf + 0.02), s, false); pull(cx + c.w / 4, y + dh / 2 - 0.02, s * (zf + 0.02), s, false); }
+            else pull(cx, y + dh / 2 - 0.02, s * (zf + 0.02), s, true);
+          }
+        } else {              // открытые ниши: две полки
+          const nh = (bh - 0.08) / 2;
+          for (let k = 0; k < 2; k++) {
+            const y = 0.08 + k * nh;
+            r.push([Bx(c.w, 0.025, dep, cx, y, zc), 'oak']);
+            if (c.fill === 'bolts')   // рулоны ткани лёжа
+              for (let j = 0; j < 3; j++) r.push([new THREE.CylinderGeometry(0.055, 0.055, c.w - 0.08, 20).rotateZ(Math.PI / 2)
+                .translate(cx, y + 0.08 + (j === 2 ? 0.095 : 0), s * (0.2 + (j % 2) * 0.12 + (j === 2 ? 0.06 : 0))), ['linen', 'fab4', 'pillowA'][(j + k) % 3]]);
+            else if (c.fill === 'basket') r.push([RB(c.w - 0.08, nh * 0.62, dep - 0.06, 0.02, cx, y + 0.03, zc + s * 0.02), 'wicker'],
+                                                 [Bx(0.12, 0.03, 0.01, cx, y + 0.03 + nh * 0.62 - 0.08, s * (zf - 0.005)), 'brass']);
+            else for (let j = 0; j < 5; j++) r.push([Bx(c.w - 0.12, 0.04, dep - 0.12, cx, y + 0.03 + j * 0.042, zc), ['paper', 'fab3', 'linen', 'kraft', 'fab4'][j]]);   // папки с выкройками
+          }
+        }
+        x += c.w + 0.03;
+        if (x < bw / 2 - 0.02) r.push([Bx(0.03, bh - 0.08, zf - 0.1, x - 0.015, 0.08, s * (0.1 + (zf - 0.1) / 2)), 'oak'], [Bx(0.03, bh - 0.08, 0.02, x - 0.015, 0.08, s * (zf + 0.01)), 'oak']);
+      }
+    };
+    side(1, [{ k: 'dr', w: 0.58, n: 4 }, { k: 'ni', w: 0.82, fill: 'basket' }, { k: 'dr', w: 0.76, n: 4, two: true }]);
+    side(-1, [{ k: 'ni', w: 0.7, fill: 'bolts' }, { k: 'ni', w: 0.76, fill: 'papers' }, { k: 'ni', w: 0.7, fill: 'bolts' }]);
+    // торец слева: рулон лекальной бумаги на латунной оси с ножом
+    const ex = -bw / 2 - 0.02;
+    r.push([Bx(0.12, 0.04, 0.03, ex - 0.04, 0.66, -0.45), 'brass'], [Bx(0.12, 0.04, 0.03, ex - 0.04, 0.66, 0.45), 'brass'],
+           [new THREE.CylinderGeometry(0.07, 0.07, 0.86, 28).rotateX(Math.PI / 2).translate(ex - 0.08, 0.68, 0), 'paper'],
+           [new THREE.CylinderGeometry(0.008, 0.008, 0.94, 10).rotateX(Math.PI / 2).translate(ex - 0.08, 0.68, 0), 'brass'],
+           [Bx(0.02, 0.012, 0.9, ex - 0.06, 0.53, 0), 'steel'],
+           [new THREE.PlaneGeometry(0.86, 0.3).rotateY(-Math.PI / 2).translate(ex - 0.152, 0.53, 0), 'paper']);   // свисающий лист
+    // торец справа: латунная рейка с линейками и угольником
+    const rx = bw / 2 + 0.02;
+    r.push([new THREE.CylinderGeometry(0.008, 0.008, 0.9, 10).rotateX(Math.PI / 2).translate(rx + 0.04, 0.78, 0), 'brass'],
+           [Bx(0.02, 0.04, 0.02, rx + 0.01, 0.76, -0.44), 'brass'], [Bx(0.02, 0.04, 0.02, rx + 0.01, 0.76, 0.44), 'brass'],
+           [Bx(0.004, 0.6, 0.05, rx + 0.05, 0.18, -0.3), 'clearPlastic'], [Bx(0.004, 0.45, 0.08, rx + 0.055, 0.33, -0.1), 'clearPlastic'],
+           [Bx(0.004, 0.6, 0.04, rx + 0.05, 0.18, 0.12), 'steel'], [Bx(0.004, 0.04, 0.3, rx + 0.05, 0.74, 0.25), 'steel'],
+           [new THREE.TorusGeometry(0.12, 0.012, 6, 24, Math.PI * 0.6).rotateY(Math.PI / 2).translate(rx + 0.055, 0.6, 0.38), 'clearPlastic']);   // лекало-«бедро»
+    // на столешнице: коврик для раскроя, ткань с лекалом, ножницы, грузики, сантиметр, корзинка, рулоны бумаги, сухоцветы
+    const y0 = H + 0.001;
+    r.push(decal(1.2, 0.8, 'cutmat', -0.42, y0 + 0.002, 0.02, -Math.PI / 2),
+           [Bx(0.62, 0.004, 0.5, -0.5, y0 + 0.004, 0.06), 'fab4'], [Bx(0.32, 0.002, 0.26, -0.52, y0 + 0.009, 0.08), 'kraft'],
+           [Bx(0.24, 0.006, 0.025, -0.1, y0 + 0.004, 0.27).rotateY(0), 'steel'],
+           [new THREE.TorusGeometry(0.022, 0.007, 6, 16).rotateX(Math.PI / 2).translate(0.03, y0 + 0.008, 0.26), 'black'],
+           [new THREE.TorusGeometry(0.018, 0.007, 6, 16).rotateX(Math.PI / 2).translate(0.035, y0 + 0.008, 0.3), 'black']);
+    for (const [px, pz] of [[-0.2, -0.12], [-0.78, -0.08], [-0.66, 0.24]]) r.push([Cy(0.03, 0.025, px, y0 + 0.005, pz, 0.03, 18), 'brass']);   // грузики для лекал
+    r.push([Cy(0.035, 0.018, 0.2, y0, -0.32, 0.035, 20), 'paper'], [Bx(0.2, 0.002, 0.012, 0.32, y0, -0.3), 'jackBlue'],       // сантиметр
+           [RB(0.32, 0.08, 0.22, 0.015, 0.45, y0, -0.05), 'wicker']);
+    for (let i = 0; i < 6; i++) r.push([Cy(0.016, 0.05, 0.36 + (i % 3) * 0.08, y0 + 0.025, -0.1 + Math.floor(i / 3) * 0.09), ['fab1', 'fab2', 'fab3', 'fab5', 'white', 'sage'][i]]);
+    r.push([new THREE.CylinderGeometry(0.045, 0.045, 0.62, 20).rotateZ(Math.PI / 2).translate(0.45, y0 + 0.045, 0.32), 'paper'],
+           [new THREE.CylinderGeometry(0.04, 0.04, 0.58, 20).rotateZ(Math.PI / 2).translate(0.47, y0 + 0.04, 0.42), 'kraft'],
+           [Sp(0.035, 0.08, y0 + 0.02, -0.3), 'fab1'],                                                                             // игольница
+           ...[0, 1, 2, 3].map(i => [Bx(0.34, 0.03, 0.26, 0.85, y0 + i * 0.03, -0.25), ['linen', 'fab3', 'fab4', 'paper'][i]]),   // стопка тканей
+           ...driedVase(0.95, y0, 0.25, 0.42, 2));
+    return r;
+  },
+  sewcabinet(o) {   // встроенный шкаф мастерской 3,0 × 0,6 × 2,8 м цвета шалфея (по референсу): по краям высокие двери,
+                    // в центре открытая часть с дубом и подсветкой — ткани на полках, кассета ниток, льняная доска, ящики внизу
+    const w = o.w || 3.0, d = o.d || 0.6, h = o.h || 2.8, sw = 0.62, cw = w - 2 * sw, fz = d / 2, r = [
+      [Bx(w, h, 0.02, 0, 0, -d / 2 + 0.01), 'sage'], [Bx(w - 0.04, 0.1, d - 0.05, 0, 0, -0.025), 'sageDark'],
+      [RB(w + 0.06, 0.06, d + 0.05, 0.008, 0, h, 0.0), 'sage'], [RB(w + 0.02, 0.03, d + 0.02, 0.005, 0, h - 0.03, 0), 'sage']];
+    for (let x = -w / 2 + 0.03; x < w / 2 - 0.02; x += 0.035) r.push([Bx(0.02, 0.13, 0.012, x, h - 0.17, fz + 0.006), 'sage']);   // каннелюры под карнизом
+    r.push([Bx(w, 0.03, 0.03, 0, h - 0.2, fz), 'sage']);
+    for (const s of [-1, 1]) {
+      const dx = s * (w / 2 - sw / 2);
+      r.push([Bx(0.03, h, d, s * (w / 2 - 0.015), 0, 0), 'sage'], [Bx(0.03, h - 0.2, d, s * cw / 2, 0, 0), 'sage'],
+             [Bx(sw - 0.03, h - 0.32, d - 0.04, dx, 0.1, -0.01), 'sageDark'],
+             [RB(sw - 0.04, h - 0.32, 0.022, 0.003, dx, 0.1, fz - 0.011), 'sage']);
+      for (const [yy, hh] of [[0.1, 0.08], [1.25, 0.07], [h - 0.3, 0.08]]) r.push([Bx(sw - 0.06, hh, 0.012, dx, yy, fz + 0.006), 'sage']);   // поперечины рамки
+      for (const sx of [-1, 1]) r.push([Bx(0.07, h - 0.32, 0.012, dx + sx * (sw / 2 - 0.055), 0.1, fz + 0.006), 'sage']);
+      const px = s * (cw / 2 + 0.08);
+      r.push([Cy(0.009, 0.5, px, 0.95, fz + 0.045), 'brass'], [new THREE.CylinderGeometry(0.005, 0.005, 0.035, 8).rotateX(Math.PI / 2).translate(px, 1.0, fz + 0.03), 'brass'],
+             [new THREE.CylinderGeometry(0.005, 0.005, 0.035, 8).rotateX(Math.PI / 2).translate(px, 1.4, fz + 0.03), 'brass']);
+    }
+    // центр: дубовая задняя стенка, ящики внизу, столешница, кассета ниток, льняная доска, полки с подсветкой
+    r.push([Bx(cw - 0.03, h - 0.42, 0.012, 0, 0.88, -d / 2 + 0.026), 'oak'], [Bx(cw - 0.03, 0.78, d - 0.05, 0, 0.1, -0.025), 'sageDark'],
+           [RB(cw - 0.02, 0.035, d - 0.01, 0.004, 0, 0.88, 0), 'oak']);
+    for (let row = 0; row < 3; row++) for (const sx of [-1, 1]) {
+      const dw = (cw - 0.04) / 2, x = sx * (dw / 2 + 0.005), y = 0.105 + row * 0.257;
+      r.push([RB(dw - 0.008, 0.25, 0.02, 0.003, x, y, fz - 0.01), 'sage'], [Bx(0.11, 0.032, 0.014, x, y + 0.2, fz + 0.007), 'brass'],
+             [Bx(0.07, 0.016, 0.002, x, y + 0.208, fz + 0.0145), 'paper']);
+    }
+    const bk = -d / 2 + 0.035;
+    r.push([Bx(0.78, 0.6, 0.02, -cw / 4, 0.98, bk), 'oak'], [Bx(0.78, 0.6, 0.015, cw / 4, 0.98, bk), 'pinLinen']);
+    const spool = ['fab1', 'fab5', 'pillowA', 'driedPink', 'fab3', 'linen', 'sage', 'fab4', 'pillowB', 'fab2', 'black', 'white'];
+    for (let i = 0; i < 6; i++) for (let j = 0; j < 10; j++) {
+      const x = -cw / 4 - 0.34 + j * 0.0755, y = 1.02 + i * 0.095;
+      r.push([new THREE.CylinderGeometry(0.016, 0.02, 0.06, 12).rotateX(Math.PI / 2).translate(x, y + 0.025, bk + 0.045), spool[(i * 3 + j) % spool.length]]);
+    }
+    for (const [x, y, ww, hh, m, rz] of [[0.12, 1.32, 0.2, 0.26, 'kraft', 0.05], [0.33, 1.3, 0.18, 0.22, 'paper', -0.08], [0.2, 1.07, 0.16, 0.1, 'art3', 0],
+                                          [0.42, 1.07, 0.08, 0.08, 'fab5', 0.1], [0.5, 1.4, 0.1, 0.13, 'art1', 0]])
+      r.push([new THREE.PlaneGeometry(ww, hh).rotateZ(rz).translate(x, y, bk + 0.009), m, m.startsWith('art')]);
+    r.push([Bx(0.003, 0.2, 0.02, cw / 4 + 0.3, 1.1, bk + 0.02), 'steel']);   // ножницы на крючке (условно)
+    // на столешнице: корзинка, банка с пуговицами, сухоцветы
+    r.push([RB(0.34, 0.14, 0.26, 0.02, -0.5, 0.915, 0.05), 'wicker'], [Cy(0.06, 0.14, 0.15, 0.915, 0.08, 0.06, 20), 'clearPlastic'],
+           ...[0, 1, 2, 3, 4, 5].map(i => [Cy(0.012, 0.006, 0.12 + (i % 3) * 0.025, 0.92 + Math.floor(i / 3) * 0.03, 0.08 + (i % 2) * 0.02), ['fab1', 'brass', 'white', 'black', 'fab2', 'sage'][i]]),
+           ...driedVase(0.55, 0.915, 0.0, 0.5, 4));
+    // верх: три полки, LED-подсветка под каждой, сложенные ткани и льняные короба с латунными рамками
+    const fabs = ['linen', 'fab3', 'pillowA', 'sage', 'fab4', 'white', 'fab5', 'driedPink', 'pillowB', 'taupe', 'fab2', 'paper'];
+    for (let k = 0; k < 3; k++) {
+      const y = 1.6 + k * 0.36;
+      r.push([Bx(cw - 0.03, 0.025, d - 0.05, 0, y, -0.025), 'oak'], [Bx(cw - 0.1, 0.008, 0.015, 0, y - 0.008, fz - 0.06), 'led']);
+      if (k === 1) for (const bx of [-0.62, -0.22, 0.22, 0.62]) r.push([RB(0.36, 0.22, 0.36, 0.01, bx, y + 0.025, -0.02), 'linen'], [Bx(0.08, 0.035, 0.006, bx, y + 0.12, 0.163), 'brass']);
+      else for (let st = 0; st < 4; st++) {   // 4 стопки сложенной ткани
+        const x = -cw / 2 + 0.24 + st * ((cw - 0.48) / 3);
+        for (let l = 0; l < 6; l++) r.push([RB(0.32, 0.042, 0.36, 0.012, x + (l % 2 ? 0.006 : -0.004), y + 0.025 + l * 0.044, -0.02), fabs[(st * 5 + l + k * 3) % fabs.length]]);
+      }
+    }
+    r.push([Bx(0.008, 1.08, d - 0.05, 0, 1.6, -0.025), 'oak']);
+    return r;
+  },
+  taskchair(o) {   // рабочее кресло в букле на колёсах: круглая изогнутая спинка, латунная стойка, чёрная крестовина
+    const c = o.c || 'boucle', r = [[RB(0.5, 0.09, 0.47, 0.04, 0, 0.44, 0.03), c], [curvedBack(0.215, 0.24, Math.PI * 0.95, 0.22, 0.5, 0.02), c],
+      [Cy(0.022, 0.32, 0, 0.12, 0), 'brass'], [Cy(0.06, 0.03, 0, 0.42, 0), 'matBlack']];
+    for (let i = 0; i < 5; i++) {
+      const a = i * Math.PI * 2 / 5;
+      r.push([Bx(0.29, 0.03, 0.045, 0.145, 0.07, 0).rotateY(a), 'matBlack'], [Sp(0.026, 0.28 * Math.cos(a), 0.03, -0.28 * Math.sin(a)), 'black']);
+    }
+    return r;
+  },
+  tubchair(o) {   // круглое кресло в букле (как в салоне на референсе) с льняной подушкой
+    const c = o.c || 'boucle';
+    return [[Cy(0.4, 0.3, 0, 0.01, 0, 0.4, 40), c], [Cy(0.35, 0.13, 0, 0.29, 0.02, 0.36, 40), c],
+      [curvedBack(0.3, 0.42, Math.PI * 1.35, 0.33, 0.27, 0.05), c], [Cy(0.38, 0.012, 0, 0, 0, 0.38, 32), 'oakDark'],
+      [RB(0.42, 0.3, 0.12, 0.06).rotateX(-0.25).translate(0, 0.42, -0.2), 'linen']];
+  },
+  drumtable(o) {   // приставной столик-«барабан» из травертина
+    const rr = o.r || 0.24;
+    return [[Cy(rr, 0.5, 0, 0, 0, rr, 40), 'travertine'], [Cy(rr + 0.003, 0.004, 0, 0.5, 0, rr + 0.003, 40), 'travertine'],
+      [Cy(0.035, 0.07, -0.08, 0.504, 0.05, 0.035, 20), 'ceramic'], [Cy(0.026, 0.004, -0.08, 0.574, 0.05, 0.026, 16), 'lamp'],   // свеча
+      [Bx(0.18, 0.025, 0.24, 0.07, 0.504, -0.04), 'linen'], [Bx(0.17, 0.02, 0.22, 0.07, 0.529, -0.04), 'paper'],         // альбом эскизов
+      ...driedVase(-0.06, 0.504, -0.1, 0.3, 1)];
+  },
+  imacdesk(o) {   // письменный стол из дуба 1,4 × 0,7 с iMac 24", клавиатурой, лампой, эскизами; корзина под столом
+    const w = o.w || 1.4, d = o.d || 0.7, r = [[RB(w, 0.03, d, 0.006, 0, 0.72), 'oak'], [Bx(w - 0.16, 0.09, d - 0.14, 0, 0.63, 0), 'oak'],
+      [RB(0.5, 0.07, 0.02, 0.004, 0, 0.64, d / 2 - 0.06), 'oak'], [Bx(0.1, 0.012, 0.012, 0, 0.67, d / 2 - 0.045), 'brass']];
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) r.push([Cy(0.026, 0.72, sx * (w / 2 - 0.06), 0, sz * (d / 2 - 0.06), 0.019, 14), 'oak']);
+    const y = 0.75, mz = -0.16;   // iMac: подставка, корпус 547 × 415 мм, белая рамка, экран
+    r.push(...imacSet(0, y, mz));
+    // лампа (белая, с дубовым основанием), стакан с карандашами, альбом, книга образцов, растение
+    const lx = -w / 2 + 0.16, lz = -d / 2 + 0.14;
+    r.push([Cy(0.07, 0.025, lx, y, lz, 0.075, 24), 'oak'], tube([[lx, y + 0.02, lz], [lx + 0.03, y + 0.3, lz + 0.05], [lx + 0.08, y + 0.48, lz + 0.18]], 0.008, 'white', 10),
+           [new THREE.CylinderGeometry(0.035, 0.07, 0.11, 24).rotateX(0.5).translate(lx + 0.1, y + 0.43, lz + 0.24), 'white'],
+           [new THREE.CircleGeometry(0.06, 20).rotateX(Math.PI / 2).rotateX(0.5).translate(lx + 0.105, y + 0.39, lz + 0.26), 'lamp'],
+           [Cy(0.035, 0.1, w / 2 - 0.15, y, -d / 2 + 0.14, 0.035, 18), 'oak']);
+    for (let i = 0; i < 5; i++) r.push([Cy(0.004, 0.17, w / 2 - 0.16 + (i % 3) * 0.012, y + 0.02, -d / 2 + 0.13 + (i % 2) * 0.015), i % 2 ? 'black' : 'kraft']);
+    r.push([Bx(0.3, 0.012, 0.21, 0.45, y, 0.12).rotateY(0), 'paper'], [Bx(0.29, 0.004, 0.2, 0.45, y + 0.012, 0.12), 'linen'],
+           [Bx(0.24, 0.05, 0.3, -0.5, y, 0.12), 'taupe'], [Bx(0.22, 0.012, 0.28, -0.5, y + 0.05, 0.12), 'fab4'],
+           [Cy(0.05, 0.09, w / 2 - 0.3, y, -d / 2 + 0.12, 0.04, 18), 'ceramic'], leafy(0.09, w / 2 - 0.3, y + 0.16, -d / 2 + 0.12, 'leafLight'),
+           [RB(0.4, 0.32, 0.3, 0.03, 0.38, 0, -0.08), 'wicker'], [Bx(0.34, 0.04, 0.24, 0.38, 0.3, -0.08), 'linen']);
+    return r;
+  },
+  workdesk(o) {   // встроенное рабочее место по референсу заказчика: длинная толстая дубовая столешница, слева тумба
+                  // в рамке на 3 ящика, справа широкая тумба на 3 ящика, бронзовые ручки-скобы; над столом во всю длину
+                  // настенный стеллаж в 2 ряда — открытые ячейки с книгами и керамикой чередуются с гладкими дверцами,
+                  // снизу LED-лента и тёплая полоса света на стене
+    const w = o.w || 2.95, d = o.d || 0.65, H = 0.76, T = 0.05, zb = -d / 2, fz = d / 2, r = [[RB(w, T, d, 0.004, 0, H - T, 0), 'oak']];
+    const handle = (x, y, len) => r.push([Bx(len, 0.012, 0.012, x, y, fz + 0.024), 'bronze'],
+      [Bx(0.012, 0.012, 0.02, x - len / 2 + 0.01, y, fz + 0.012), 'bronze'], [Bx(0.012, 0.012, 0.02, x + len / 2 - 0.01, y, fz + 0.012), 'bronze']);
+    const ped = (x0, pw, n) => {   // тумба в рамке: боковины и цоколь, ящики утоплены
+      const cx = x0 + pw / 2, ih = H - T - 0.06;
+      r.push([Bx(pw, H - T, d - 0.02, cx, 0, -0.01), 'oakDark'], [Bx(0.03, H - T, d, x0 + 0.015, 0, 0), 'oak'], [Bx(0.03, H - T, d, x0 + pw - 0.015, 0, 0), 'oak'],
+             [Bx(pw, 0.06, 0.02, cx, 0, fz - 0.01), 'oak']);
+      const dh = ih / n;
+      for (let i = 0; i < n; i++) {
+        const y = 0.06 + i * dh;
+        r.push([RB(pw - 0.07, dh - 0.008, 0.02, 0.003, cx, y + 0.004, fz - 0.012), 'oak']);
+        handle(cx, y + dh - 0.07, Math.min(0.2, pw * 0.36));
+      }
+    };
+    const pl = 0.62, pr = 0.78;
+    ped(-w / 2, pl, 3); ped(w / 2 - pr, pr, 3);
+    r.push([Bx(w - pl - pr, H - T - 0.1, 0.02, (pl - pr) / 2, 0.1, zb + 0.03), 'oak']);   // задняя панель в нише для ног
+    // ---- на столе (слева направо, как на фото) ----
+    const ky = H, kz = zb + 0.06, imx = (pl - pr) / 2;
+    const frame = (x, fw, fh, art, fm, lean = 0.09) => [[RB(fw, fh, 0.025, 0.004).rotateX(-lean).translate(x, ky, kz), fm],
+      [RB(fw - 0.035, fh - 0.035, 0.004, 0.001, 0, 0.0175, 0.014).rotateX(-lean).translate(x, ky, kz), 'white'],
+      [new THREE.PlaneGeometry(fw - 0.13, fh - 0.13).translate(0, fh / 2, 0.0165).rotateX(-lean).translate(x, ky, kz), art, true]];
+    const spiky = (x, y, z, n, len, mat) => {   // растение с узкими длинными листьями
+      for (let i = 0; i < n; i++) {
+        const a = i * 2.39, tl = 0.15 + (i % 4) * 0.13;
+        r.push([Bx(0.014, len * (0.7 + (i % 3) * 0.15), 0.003).rotateZ(tl).rotateY(a).translate(x, y, z), mat]);
+      }
+    };
+    r.push(...frame(-w / 2 + 0.45, 0.5, 0.78, 'art2', 'linen'));                                       // большая картина в светлой раме
+    r.push([new THREE.LatheGeometry([[0.001, 0], [0.075, 0], [0.085, 0.06], [0.08, 0.12], [0.09, 0.17], [0.085, 0.19], [0.001, 0.19]]
+      .map(([a, b]) => new THREE.Vector2(a, b)), 24).translate(-w / 2 + 0.28, ky, 0.05), 'ceramic']);   // белый горшок с рельефом
+    spiky(-w / 2 + 0.28, ky + 0.17, 0.05, 16, 0.32, 'leafLight');
+    r.push([Cy(0.045, 0.08, -w / 2 + 0.72, ky, 0.12, 0.045, 18), 'ceramic']); spiky(-w / 2 + 0.72, ky + 0.07, 0.12, 9, 0.1, 'leaf');   // стаканчик с суккулентом
+    r.push([Cy(0.05, 0.13, -w / 2 + 0.9, ky, -0.1, 0.05, 20), 'clearPlastic'], [Cy(0.04, 0.1, -w / 2 + 1.0, ky, -0.04, 0.04, 20), 'clearPlastic']);   // стеклянные банки
+    r.push(...imacSet(imx, ky, zb + 0.18));
+    r.push([Cy(0.04, 0.12, imx + 0.38, ky, -0.13, 0.03, 18), 'ceramic'], leafy(0.08, imx + 0.38, ky + 0.2, -0.13, 'leafDark'));
+    r.push(...frame(imx + 0.62, 0.36, 0.5, 'art3', 'matBlack', 0.12));                                 // картина в чёрной раме
+    r.push([new THREE.SphereGeometry(0.09, 18, 12).scale(1, 0.6, 1.4).translate(imx + 0.58, ky + 0.06, 0.02), 'ceramic']);   // белая керамика
+    r.push([Cy(0.035, 0.3, imx + 0.85, ky, -0.12, 0.045, 18), 'clearPlastic']);                        // высокая стеклянная ваза
+    for (let i = 0; i < 14; i++) r.push([Sp(0.04 + (i % 3) * 0.012, imx + 0.85 + Math.cos(i * 2.4) * 0.1, ky + 0.4 + (i % 5) * 0.035, -0.12 + Math.sin(i * 2.4) * 0.08), i % 4 ? 'white' : 'paper']);
+    r.push(...hpPrinter(w / 2 - 0.27, ky, zb + 0.215));   // МФУ HP Color Laser MFP 178nw на правой тумбе
+    r.push([Bx(0.32, 0.008, 0.22, imx - 0.05, ky, 0.2), 'paper'], [Bx(0.2, 0.006, 0.14, imx + 0.3, ky, 0.22), 'paper']);   // листы с эскизами
+    // ---- настенный стеллаж ----
+    const y0 = 1.52, rh = 0.42, sd = 0.32, t = 0.025, zc = zb + sd / 2, sf = zb + sd;
+    r.push([Bx(w, t, sd, 0, y0 - t, zc), 'oak'], [Bx(w, t, sd, 0, y0 + rh, zc), 'oak'], [Bx(w, t, sd, 0, y0 + 2 * rh + t, zc), 'oak'],
+           [Bx(t, 2 * rh + t, sd, -w / 2 + t / 2, y0, zc), 'oak'], [Bx(t, 2 * rh + t, sd, w / 2 - t / 2, y0, zc), 'oak'],
+           [Bx(w - 0.1, 0.008, 0.015, 0, y0 - t - 0.008, sf - 0.04), 'led'],
+           [new THREE.PlaneGeometry(w - 0.04, 0.7).translate(0, y0 - t - 0.35, zb + 0.003), 'ledWash', true]);
+    const books = ['paper', 'linen', 'white', 'taupe', 'paper', 'kraft', 'white', 'linen', 'pillowA', 'paper'];
+    // c — дверца, b — книги стоя, s — книги + шар, v — ваза и чаша, p — большая деревянная тарелка
+    const rows = [[['c', 0.5], ['b', 0.5], ['c', 0.42], ['v', 0.32], ['b', 0.5], ['c', 0.42]],
+                  [['b', 0.55], ['s', 0.25], ['v', 0.55], ['b', 0.45], ['p', 0.4], ['b', 0.45]]];
+    rows.forEach((row, k) => {
+      const yk = y0 + k * (rh + t), inner = w - 2 * t, sum = row.reduce((a, c) => a + c[1], 0);
+      let x = -w / 2 + t;
+      row.forEach(([kind, f], i) => {
+        const cw = f * inner / sum, cx = x + cw / 2;
+        if (kind === 'c') r.push([RB(cw - 0.006, rh - 0.006, 0.02, 0.003, cx, yk + 0.003, sf - 0.01), 'oak']);   // дверца без ручки (нажимное открывание)
+        else if (kind === 'b' || kind === 's') {
+          let bx = x + 0.03;
+          const n = Math.floor((cw - (kind === 's' ? 0.16 : 0.22)) / 0.034);
+          for (let j = 0; j < n; j++) {
+            const bw = 0.026 + ((j + i) % 3) * 0.008, bh = 0.22 + (((j + i) * 7) % 5) * 0.025;
+            r.push([Bx(bw, bh, 0.21, bx + bw / 2, yk, zb + 0.13), books[(j + k + i) % books.length]]); bx += bw + 0.002;
+          }
+          for (let j = 0; j < 4; j++) r.push([Bx(0.22, 0.028, 0.16, x + cw - 0.14, yk + j * 0.028, zb + 0.14), books[(j + 2 + i) % books.length]]);   // стопка лёжа
+          if (kind === 's') r.push([Sp(0.055, x + cw - 0.13, yk + 0.17, zb + 0.14), 'ceramic']);
+        } else if (kind === 'p') r.push([Cy(0.17, 0.025, cx, yk + 0.06, zb + 0.15, 0.13, 32), 'walnut'], [Cy(0.06, 0.06, cx, yk, zb + 0.15, 0.05, 20), 'walnut']);   // тарелка на подставке
+        else r.push(driedVase(cx - 0.07, yk, zb + 0.15, 0.42, k + i)[0],
+                    [new THREE.SphereGeometry(0.1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.6, 1).rotateX(Math.PI).translate(cx + 0.08, yk + 0.06, zb + 0.15), k ? 'ceramic' : 'bronze']);
+        x += cw;
+        if (i < row.length - 1) r.push([Bx(t, rh, sd, x, yk, zc), 'oak']);
+      });
+    });
+    return r;
+  },
+  deskchair(o) {   // рабочее кресло как на референсе: светлая обивка, деревянные подлокотники и деревянная крестовина на колёсах
+    const c = o.c || 'boucle', r = [[RB(0.5, 0.08, 0.48, 0.035, 0, 0.44, 0.03), c],
+      [curvedBack(0.5, 0.54, 0.95, 0.36, 0.54, 0.02).translate(0, 0, 0.27), c],
+      [Cy(0.025, 0.3, 0, 0.13, 0), 'matBlack'], [Cy(0.05, 0.04, 0, 0.42, 0), 'matBlack']];
+    for (const s of [-1, 1]) r.push(tube([[s * 0.23, 0.47, -0.19], [s * 0.28, 0.66, -0.15], [s * 0.285, 0.67, 0.02], [s * 0.275, 0.66, 0.15], [s * 0.25, 0.48, 0.19]], 0.014, 'oak', 16));
+    for (let i = 0; i < 5; i++) {
+      const a = i * Math.PI * 2 / 5;
+      r.push([RB(0.3, 0.035, 0.05, 0.012, 0.15, 0.07, 0).rotateY(a), 'oak'], [Sp(0.026, 0.29 * Math.cos(a), 0.03, -0.29 * Math.sin(a)), 'black']);
+    }
+    return r;
+  },
+  brasslamp: () => [[Cy(0.14, 0.025, 0, 0, 0, 0.15, 28), 'brass'], [Cy(0.011, 1.35, 0, 0.025, 0), 'brass'],   // латунный торшер с поворотной головой
+    tube([[0, 1.37, 0], [0, 1.47, 0.06], [0, 1.45, 0.2]], 0.011, 'brass', 10),
+    [new THREE.CylinderGeometry(0.05, 0.08, 0.14, 24).rotateX(0.5).translate(0, 1.38, 0.26), 'brass'],
+    [new THREE.CircleGeometry(0.07, 20).rotateX(Math.PI / 2).rotateX(0.5).translate(0, 1.32, 0.29), 'lamp']],
+  pinboard(o) {   // мягкая льняная доска почти до пола (референс заказчика): толстая панель со скруглёнными краями;
+                  // на булавках — открытка с сердцем, полароиды, выкраски, страница журнала, образцы обоев, ленты, лоскут ткани;
+                  // сверху никелевая лампа для картин
+    const w = o.w || 1.3, h = o.h || 2.05, z0 = o.z ?? 0.18, f = 0.061, r = [[RB(w, h, 0.06, 0.028, 0, z0, 0.03), 'pinLinen']];
+    let layer = 0;
+    const X = fx => -w / 2 + fx * w, Y = fy => z0 + fy * h;
+    const P = (fx, fy, ww, hh, m, rz = 0, pin = true) => {
+      const x = X(fx), y = Y(fy), z = f + 0.001 + (layer++ % 6) * 0.0006;
+      r.push([new THREE.PlaneGeometry(ww, hh).rotateZ(rz).translate(x, y, z), m, m.startsWith('art')]);
+      if (pin) r.push([Sp(0.006, x, y + hh / 2 - 0.015, z + 0.004), 'brass']);
+    };
+    P(0.33, 0.73, 0.17, 0.24, 'paper');                                                    // открытка
+    const heart = new THREE.Shape(); heart.moveTo(0, -0.045);
+    heart.bezierCurveTo(0.07, 0.0, 0.045, 0.06, 0, 0.028); heart.bezierCurveTo(-0.045, 0.06, -0.07, 0.0, 0, -0.045);
+    r.push([new THREE.ShapeGeometry(heart, 12).translate(X(0.33), Y(0.745), f + 0.006), 'terra']);
+    for (let i = 0; i < 4; i++) r.push([Bx(0.09 - i * 0.02, 0.003, 0.001, X(0.33) - 0.01, Y(0.66) - i * 0.012, f + 0.006), 'black']);   // подпись
+    P(0.41, 0.8, 0.07, 0.085, 'paper', -0.25); P(0.41, 0.805, 0.056, 0.056, 'art1', -0.25, false);   // полароид
+    P(0.15, 0.7, 0.065, 0.08, 'paper'); P(0.15, 0.705, 0.052, 0.052, 'art2', 0, false);
+    P(0.2, 0.6, 0.11, 0.11, 'linen', 0, false); P(0.32, 0.6, 0.11, 0.11, 'chipBlue', 0, false); P(0.44, 0.6, 0.11, 0.11, 'sage', 0, false);   // выкраски
+    P(0.4, 0.47, 0.1, 0.1, 'sageDark', 0, false);
+    P(0.6, 0.5, 0.19, 0.27, 'art3');                                                        // страница журнала
+    P(0.79, 0.66, 0.12, 0.26, 'art1'); P(0.73, 0.46, 0.13, 0.25, 'linen');                  // образцы обоев
+    r.push([new THREE.PlaneGeometry(0.014, 0.4).rotateZ(0.05).translate(X(0.67), Y(0.58), f + 0.007), 'driedPink'],
+           [new THREE.PlaneGeometry(0.012, 0.36).rotateZ(-0.06).translate(X(0.685), Y(0.57), f + 0.0075), 'driedPink']);   // ленты
+    const sw = new THREE.Shape(); sw.moveTo(-0.03, 0.06); sw.lineTo(0.04, 0.05); sw.lineTo(0.12, -0.14); sw.lineTo(0.02, -0.17); sw.lineTo(-0.1, -0.08);
+    r.push([new THREE.ShapeGeometry(sw).translate(X(0.17), Y(0.45), f + 0.004), 'jute'], [Sp(0.008, X(0.17), Y(0.45) + 0.05, f + 0.01), 'brass']);   // лоскут ткани
+    P(0.31, 0.38, 0.09, 0.11, 'art2'); P(0.4, 0.34, 0.05, 0.14, 'fab5', 0, false);         // фото и образец твида
+    P(0.6, 0.31, 0.06, 0.16, 'paper'); P(0.74, 0.27, 0.2, 0.17, 'paper');                   // бирка и лист с узором
+    for (let i = 0; i < 5; i++) r.push([new THREE.TorusGeometry(0.03, 0.002, 4, 16).translate(X(0.74) - 0.06 + i * 0.03, Y(0.27), f + 0.009), 'taupe']);
+    // лампа для картин (никель)
+    r.push([new THREE.CylinderGeometry(0.02, 0.02, w * 0.45, 20).rotateZ(Math.PI / 2).translate(0, z0 + h + 0.13, 0.2), 'chrome'],
+           [Cy(0.01, 0.06, 0, z0 + h + 0.03, 0.06), 'chrome'], tube([[0, z0 + h + 0.07, 0.06], [0, z0 + h + 0.13, 0.11], [0, z0 + h + 0.13, 0.18]], 0.008, 'chrome', 6),
+           [new THREE.PlaneGeometry(w * 0.42, 0.022).rotateX(Math.PI / 2).translate(0, z0 + h + 0.11, 0.2), 'lamp']);
+    return r;
+  },
+  floormirror(o) {   // зеркало в рост в тонкой чёрной раме (как в салоне на референсе)
+    const w = o.w || 1.0, h = o.h || 2.1, z0 = 0.12, t = 0.025;
+    return [[Bx(w - 0.02, h - 0.02, 0.008, 0, z0 + 0.01, 0.02), 'mirror'],
+      [Bx(w, t, 0.035, 0, z0, 0.02), 'matBlack'], [Bx(w, t, 0.035, 0, z0 + h - t, 0.02), 'matBlack'],
+      [Bx(t, h, 0.035, -w / 2 + t / 2, z0, 0.02), 'matBlack'], [Bx(t, h, 0.035, w / 2 - t / 2, z0, 0.02), 'matBlack']];
+  },
+  strelitzia(o) {   // стрелиция («райская птица», референс заказчика) в сером бетонном кашпо-цилиндре с белой галькой:
+                    // 15 длинных черешков веером, на каждом крупный вытянутый лист со сложенной вдоль серединой и опущенным кончиком
+    const s = o.s || 1, r = [[Cy(0.25, 0.56, 0, 0, 0, 0.25, 40), 'potConcrete'], [Cy(0.225, 0.01, 0, 0.53, 0, 0.225, 32), 'soil'],
+      [Cy(0.04, 0.32, 0.02, 0.5, -0.02, 0.06, 12), 'trunk']];
+    for (let i = 0; i < 45; i++) { const a = rnd() * 6.28, dd = Math.sqrt(rnd()) * 0.21; r.push([Sp(0.012 + rnd() * 0.008, Math.cos(a) * dd, 0.545, Math.sin(a) * dd), 'ceramic']); }
+    for (let i = 0; i < 17; i++) {
+      const a = i * 2.39996 + rnd() * 0.3, lean = 0.12 + (i % 5) * 0.09, h = (0.5 + ((i * 37) % 10) / 10 * 0.85) * s;
+      const bx = Math.cos(a) * 0.05, bz = Math.sin(a) * 0.05, tx = bx + Math.cos(a) * h * Math.sin(lean), tz = bz + Math.sin(a) * h * Math.sin(lean), ty = 0.55 + h * Math.cos(lean);
+      r.push(tube([[bx, 0.55, bz], [(bx + tx) / 2, (0.55 + ty) / 2, (bz + tz) / 2], [tx, ty, tz]], 0.008, 'leafStem', 8));
+      const L = (0.52 + rnd() * 0.25) * s, W = L * 0.42, g = new THREE.PlaneGeometry(1, 1, 4, 10), p = g.attributes.position;
+      for (let k = 0; k < p.count; k++) {
+        const t = p.getY(k) + 0.5, x = p.getX(k) * W * Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.97 + 0.03)), 0.7);
+        p.setXYZ(k, x, t * L, Math.abs(x) * 0.35 - t * t * 0.12);   // складка вдоль середины, кончик отогнут наружу
+      }
+      g.computeVertexNormals();
+      r.push([g.rotateX(-(lean + 0.25 + rnd() * 0.35)).rotateY(-a - Math.PI / 2).translate(tx, ty, tz), i % 3 ? 'leafBig' : 'leafBig2']);
+    }
+    return r;
+  },
+  podium: o => [[Cy(o.r || 0.33, 0.12, 0, 0, 0, o.r || 0.33, 40), 'walnut'], [Cy((o.r || 0.33) - 0.02, 0.02, 0, 0.12, 0, (o.r || 0.33) - 0.02, 40), 'boucle']],
+  tracklight(o) {   // чёрный трек под потолком со спотами; tilt — наклон спотов (к −Z при tilt > 0)
+    const L = o.w || 6, n = o.n || 5, top = GF_H, t = o.tilt || 0, r = [[Bx(L, 0.035, 0.035, 0, top - 0.035, 0), 'matBlack']];
+    for (let i = 0; i < n; i++) {
+      const x = -L / 2 + 0.4 + i * (L - 0.8) / Math.max(1, n - 1);
+      r.push([Bx(0.05, 0.035, 0.045, x, top - 0.07, 0), 'matBlack'],
+             [new THREE.CylinderGeometry(0.036, 0.036, 0.14, 20).translate(0, -0.07, 0).rotateX(t).translate(x, top - 0.075, 0), 'matBlack'],
+             [new THREE.CircleGeometry(0.028, 16).rotateX(Math.PI / 2).translate(0, -0.142, 0).rotateX(t).translate(x, top - 0.075, 0), 'lamp']);
+    }
+    return r;
+  },
+  conePendant(o) {   // белые лампы-конусы на латунных штангах (референс с островом); z — низ абажура
+    const n = o.n || 2, step = o.step || 1.2, z = o.z || 1.95, top = GF_H, r = [];
+    for (let i = 0; i < n; i++) {
+      const x = (i - (n - 1) / 2) * step;
+      r.push([Cy(0.006, top - z - 0.3, x, z + 0.3, 0), 'brass'], [Cy(0.055, 0.02, x, top - 0.02, 0), 'brass'],
+             [Cy(0.03, 0.06, x, z + 0.25, 0, 0.022, 16), 'brass'], [Cy(0.045, 0.26, x, z, 0, 0.2, 32), 'lacquer'],
+             [new THREE.CircleGeometry(0.18, 28).rotateX(Math.PI / 2).translate(x, z - 0.002, 0), 'lamp']);
+    }
+    return r;
+  },
+  driedvase: o => [...driedVase(-0.12, 0, 0.05, 1.5, 0), ...driedVase(0.15, 0, -0.05, 1.05, 3), ...driedVase(0.08, 0, 0.2, 0.7, 5)],
+  // ---------- туалет 1 этажа по референсу заказчика (спиной к стене: z = 0 — стена, +Z — в комнату) ----------
+  wainscot(o) {   // белые стеновые панели до 1,05 м: основа, рамки-филёнки, поручень-полочка сверху, плинтус
+    const w = o.w || 1, h = o.h || 1.05, n = Math.max(1, Math.round(w / (o.p || 0.42))), pw = w / n, r = [
+      [Bx(w, h, 0.018, 0, 0, 0.009), 'wainscot'], [RB(w, 0.045, 0.05, 0.012, 0, h - 0.01, 0.025), 'wainscot'],
+      [Bx(w, 0.022, 0.035, 0, h - 0.05, 0.0175), 'wainscot'], [Bx(w, 0.12, 0.03, 0, 0, 0.015), 'wainscot']];
+    for (let i = 0; i < n; i++) {
+      const cx = -w / 2 + (i + 0.5) * pw, fw = Math.max(0.06, pw - 0.12), y0 = 0.2, fh = h - 0.34;
+      r.push([Bx(fw, 0.022, 0.01, cx, y0, 0.023), 'wainscot'], [Bx(fw, 0.022, 0.01, cx, y0 + fh - 0.022, 0.023), 'wainscot'],
+             [Bx(0.022, fh, 0.01, cx - fw / 2 + 0.011, y0, 0.023), 'wainscot'], [Bx(0.022, fh, 0.01, cx + fw / 2 - 0.011, y0, 0.023), 'wainscot']);
+    }
+    return r;
+  },
+  wctoilet() {   // подвесной унитаз со скруглённой крышкой; на панели — белая кнопка смыва с двумя кругами
+    return [[RB(0.36, 0.3, 0.52, 0.14, 0, 0.1, 0.32), 'ceramic'], [RB(0.37, 0.045, 0.5, 0.16, 0, 0.39, 0.31), 'ceramic'],
+      [Bx(0.3, 0.05, 0.08, 0, 0.35, 0.09), 'ceramic'],
+      [RB(0.24, 0.16, 0.012, 0.01, 0, 0.88, 0.056), 'white'],
+      [new THREE.TorusGeometry(0.045, 0.0035, 6, 28).translate(-0.035, 0.96, 0.063), 'plasticGrey'],
+      [new THREE.TorusGeometry(0.03, 0.0035, 6, 24).translate(0.06, 0.95, 0.063), 'plasticGrey']];
+  },
+  powderbasin() {   // узкая подвесная раковина, высокий хромированный смеситель, бутылочный сифон, мыло в янтарном флаконе,
+                    // стеклянная ваза с эвкалиптом и гипсофилой; ближе к двери — кольцо с полосатым полотенцем
+    const z0 = 0.05, r = [[RB(0.5, 0.16, 0.3, 0.02, 0, 0.72, z0 + 0.15), 'ceramic'], [Bx(0.42, 0.004, 0.2, 0, 0.876, z0 + 0.17), 'white'],
+      [Cy(0.018, 0.22, 0.02, 0.88, z0 + 0.06), 'chrome'], [Bx(0.022, 0.022, 0.14, 0.02, 1.08, z0 + 0.12), 'chrome'], [Bx(0.012, 0.012, 0.07, 0.02, 1.12, z0 + 0.06), 'chrome'],
+      [Cy(0.016, 0.22, 0, 0.5, z0 + 0.14), 'chrome'], [Cy(0.034, 0.12, 0, 0.42, z0 + 0.14, 0.034, 18), 'chrome'],
+      [new THREE.CylinderGeometry(0.014, 0.014, 0.14, 12).rotateX(Math.PI / 2).translate(0, 0.5, z0 + 0.07), 'chrome'],
+      [Cy(0.03, 0.15, -0.17, 0.88, z0 + 0.17, 0.03, 16), 'amber'], [Cy(0.012, 0.04, -0.17, 1.03, z0 + 0.17), 'black'], [Bx(0.03, 0.01, 0.01, -0.165, 1.065, z0 + 0.18), 'black'],
+      [Cy(0.045, 0.17, 0.17, 0.88, z0 + 0.13, 0.04, 18), 'clearPlastic'],
+];
+    for (let i = 0; i < 7; i++) {   // ветки эвкалипта: тонкий стебель и круглые сизые листики
+      const a = i * 0.9 - 2.7, x1 = 0.17 + Math.sin(a) * 0.16, y1 = 1.12 + (i % 3) * 0.08, z1 = z0 + 0.13 + Math.cos(a) * 0.05;
+      r.push(tube([[0.17, 0.9, z0 + 0.13], [0.17 + Math.sin(a) * 0.05, 1.04, z0 + 0.13], [x1, y1, z1]], 0.002, 'leafStem', 6));
+      for (let k = 0; k < 6; k++) { const t = 0.35 + k * 0.12; r.push([new THREE.CircleGeometry(0.018 + k * 0.002, 10).rotateY(a + k).rotateX(0.5).translate(0.17 + (x1 - 0.17) * t, 0.9 + (y1 - 0.9) * t, z0 + 0.13 + (z1 - z0 - 0.13) * t), 'eucalyptus']); }
+    }
+    for (let i = 0; i < 40; i++) { const a = rnd() * 6.28, rr = Math.sqrt(rnd()) * 0.13; r.push([Sp(0.008, 0.17 + Math.cos(a) * rr, 1.15 + rnd() * 0.18, z0 + 0.13 + Math.sin(a) * rr * 0.6), 'white']); }   // гипсофила
+    const tx = -0.52;   // кольцо и полотенце
+    r.push([Cy(0.02, 0.01, tx, 0.98, 0.02).rotateX(0), 'chrome'], [new THREE.TorusGeometry(0.06, 0.006, 8, 24).translate(tx, 0.92, 0.06), 'chrome'],
+           [RB(0.3, 0.6, 0.03, 0.01, tx, 0.36, 0.07), 'linen']);
+    for (const y of [0.48, 0.53, 0.66, 0.81, 0.86]) r.push([Bx(0.3, 0.012, 0.032, tx, y, 0.07), 'navyPaint']);
+    for (let i = 0; i < 14; i++) r.push([Bx(0.004, 0.06, 0.004, tx - 0.14 + i * 0.0215, 0.3, 0.07), 'linen']);   // бахрома
+    return r;
+  },
+  brassmirror(o) {   // круглое зеркало в тонкой латунной раме и два латунных бра со стеклянными плафонами
+    const rr = o.r || 0.35, y = o.z || 1.65, r = [[new THREE.CircleGeometry(rr, 48).translate(0, y, 0.06), 'mirror'],
+      [new THREE.TorusGeometry(rr, 0.016, 10, 64).translate(0, y, 0.06), 'brass'], [new THREE.CylinderGeometry(rr * 0.95, rr * 0.95, 0.04, 40).rotateX(Math.PI / 2).translate(0, y, 0.03), 'black']];
+    for (const s of [-1, 1]) {
+      const x = s * (rr + 0.17), sy = y + 0.12;
+      r.push([new THREE.CylinderGeometry(0.04, 0.04, 0.015, 24).rotateX(Math.PI / 2).translate(x, sy, 0.008), 'brass'],
+             [Bx(0.02, 0.02, 0.1, x, sy - 0.01, 0.06), 'brass'], [Cy(0.035, 0.02, x, sy - 0.11, 0.12, 0.035, 20), 'brass'],
+             [Cy(0.034, 0.2, x, sy - 0.09, 0.12, 0.034, 20), 'clearPlastic'], [Cy(0.012, 0.1, x, sy - 0.04, 0.12, 0.012, 12), 'lamp'],
+             [Cy(0.036, 0.015, x, sy + 0.11, 0.12, 0.036, 20), 'brass']);
+    }
+    return r;
+  },
+  wcshelf(o) {   // дубовая полка над унитазом: картина в золотой раме, диффузор с палочками, свеча, книги, бело-синяя ваза, баночка
+    const w = o.w || 1.37, y = o.z || 1.55, r = [[Bx(w, 0.035, 0.2, 0, y, 0.1), 'oak']], t = y + 0.035;
+    r.push([RB(0.42, 0.52, 0.02, 0.004).rotateX(-0.07).translate(0, t, 0.05), 'brass'], [Bx(0.38, 0.48, 0.004, 0, t + 0.02, 0.063).rotateX(0), 'paper'],
+           [new THREE.PlaneGeometry(0.26, 0.34).rotateX(-0.07).translate(0, t + 0.26, 0.068), 'artBotan', true]);
+    r.push([Cy(0.03, 0.1, -0.42, t, 0.1, 0.03, 16), 'amber'], [Cy(0.012, 0.02, -0.42, t + 0.1, 0.1), 'black']);
+    for (let i = 0; i < 6; i++) r.push(tube([[-0.42, t + 0.1, 0.1], [-0.42 + Math.cos(i) * 0.05, t + 0.32, 0.1 + Math.sin(i) * 0.04]], 0.002, 'black', 1));   // палочки
+    r.push([Cy(0.032, 0.08, -0.32, t, 0.12, 0.032, 16), 'clearPlastic'], [Cy(0.026, 0.05, -0.32, t, 0.12, 0.026, 16), 'white'], [Cy(0.006, 0.02, -0.32, t + 0.05, 0.12), 'lamp'],
+           [Bx(0.22, 0.025, 0.15, -0.38, t, 0.12), 'paper'], [Bx(0.2, 0.025, 0.14, -0.37, t - 0.0, 0.12).translate(0, 0.025, 0), 'linen']);
+    const jar = [[0.001, 0], [0.06, 0.005], [0.085, 0.06], [0.08, 0.13], [0.05, 0.17], [0.045, 0.19], [0.05, 0.2], [0.04, 0.23], [0.001, 0.24]].map(([a, b]) => new THREE.Vector2(a, b));
+    r.push([new THREE.LatheGeometry(jar, 24).translate(0.4, t, 0.1), 'chinaBlue'], [Cy(0.03, 0.05, 0.27, t, 0.12, 0.03, 16), 'amber'], [Cy(0.031, 0.01, 0.27, t + 0.05, 0.12, 0.031, 16), 'black']);
+    return r;
+  },
+  goldprint(o) {   // картина в тонкой золотой раме с белым паспарту; z — высота центра, art — изображение
+    const w = o.w || 0.35, h = o.h || 0.5, z = o.z || 1.7;
+    return [[RB(w, h, 0.025, 0.003, 0, z - h / 2, 0.0125), 'brass'], [Bx(w - 0.03, h - 0.03, 0.004, 0, z - h / 2 + 0.015, 0.026), 'paper'],
+      [new THREE.PlaneGeometry(w - 0.12, h - 0.14).translate(0, z + 0.01, 0.029), o.art || 'artBotan', true]];
+  },
+  paperholder: () => [[new THREE.CylinderGeometry(0.03, 0.03, 0.012, 20).rotateX(Math.PI / 2).translate(0, 0.75, 0.006), 'chrome'],
+    [Bx(0.012, 0.012, 0.09, 0, 0.745, 0.05), 'chrome'], [new THREE.CylinderGeometry(0.008, 0.008, 0.13, 10).rotateZ(Math.PI / 2).translate(0.06, 0.75, 0.09), 'chrome'],
+    [new THREE.CylinderGeometry(0.06, 0.06, 0.1, 24).rotateZ(Math.PI / 2).translate(0.07, 0.75, 0.09), 'white']],
+  toiletbrush: () => [[Cy(0.05, 0.28, 0, 0, 0, 0.05, 24), 'travertine'], [Cy(0.04, 0.02, 0, 0.28, 0, 0.04, 20), 'chrome'], [Cy(0.007, 0.26, 0, 0.3, 0), 'chrome'], [Sp(0.012, 0, 0.56, 0), 'chrome']],
+  downlight: () => [[Cy(0.06, 0.012, 0, GF_H - 0.012, 0, 0.06, 24), 'white'], [Cy(0.04, 0.004, 0, GF_H - 0.016, 0, 0.04, 20), 'lamp']],
   mannequin() {   // портновский манекен на стойке
     const pts = [[0.001, 0], [0.13, 0.02], [0.17, 0.12], [0.14, 0.3], [0.12, 0.38], [0.15, 0.5], [0.17, 0.6], [0.14, 0.68], [0.07, 0.72], [0.05, 0.78], [0.001, 0.8]].map(([x, y]) => new THREE.Vector2(x, y));
     return [[new THREE.LatheGeometry(pts, 24).scale(1, 1, 0.75).translate(0, 0.85, 0), 'fabric2'], [Cy(0.012, 0.86), 'oak'], [Cy(0.06, 0.05, 0, 1.65, 0), 'oak'],
@@ -1441,8 +2260,8 @@ groups.furnGf = new THREE.Group(); groups.gf.add(groups.furnGf);
 groups.furnAttic = new THREE.Group(); groups.attic.add(groups.furnAttic);
 groups.furnBs = new THREE.Group(); groups.bs.add(groups.furnBs);
 groups.furnCeil = new THREE.Group(); groups.ceil.add(groups.furnCeil);   // потолочные предметы прячутся вместе с потолками в «Домике»
-const FURN_GRP = { bs: 'furnBs', gf: 'furnGf', attic: 'furnAttic' }, CEIL_TYPES = ['gridceiling'];
-const NO_OBST = ['rug', 'pendants', 'pendLine', 'uppers', 'curtain', 'art', 'gridceiling', 'sconce'];
+const FURN_GRP = { bs: 'furnBs', gf: 'furnGf', attic: 'furnAttic' }, CEIL_TYPES = ['gridceiling', 'tracklight', 'conePendant', 'downlight'];
+const NO_OBST = ['rug', 'pendants', 'pendLine', 'uppers', 'curtain', 'art', 'gridceiling', 'sconce', 'tracklight', 'conePendant', 'pinboard', 'floormirror', 'wainscot', 'goldprint', 'paperholder', 'brassmirror', 'downlight', 'wcshelf'];
 const EDIT_LS = 'dom3d-furniture-v1';
 const norm360 = d => ((Math.round(d) % 360) + 360) % 360;
 const EDITS = (() => { try { return JSON.parse(localStorage.getItem(EDIT_LS) || '{}'); } catch { return {}; } })();
@@ -1464,16 +2283,72 @@ function updateFurnObst() {
   for (const f of FURN) if (!NO_OBST.includes(f.it.t)) OBST[f.lvl].push({ x0: f.bb.min.x, x1: f.bb.max.x, y0: f.bb.min.z, y1: f.bb.max.z, k: 'furn', it: f.it });
   onFurnChanged?.();
 }
-// собрать всю мебель в несколько больших объектов (быстро для видеокарты); skip — предмет, который сейчас двигают
+// ---------- светильники мастерской: каждый — отдельный объект со своим светом, включается наведением + щелчок / F ----------
+// Светящиеся части (lamp, led, ledWash) у каждого светильника свои; вечером у включённого горит настоящий источник света.
+const LIGHT_TYPES = ['tracklight', 'conePendant', 'brasslamp', 'pinboard', 'workdesk', 'sewcabinet'], GLOW = ['lamp', 'led', 'ledWash'];
+const LIGHT_NAME = { tracklight: 'Трековый свет', conePendant: 'Лампа над островом', brasslamp: 'Торшер', pinboard: 'Лампа над доской',
+  workdesk: 'Подсветка стеллажа', sewcabinet: 'Подсветка шкафа' };
+// источники света в местных координатах предмета (y — высота от пола): i — сила, d — дальность, spot — направлен вниз
+const LIGHT_DEF = {
+  tracklight: o => [-1, 1].map(s => ({ x: s * (o.w || 6) / 4, y: GF_H - 0.4, z: 0, i: 9, d: 7 })),
+  conePendant: o => Array.from({ length: o.n || 2 }, (_, i) => ({ x: (i - ((o.n || 2) - 1) / 2) * (o.step || 1.2), y: (o.z || 1.95) - 0.05, z: 0, i: 24, d: 7, spot: true })),
+  brasslamp: () => [{ x: 0, y: 1.25, z: 0.3, i: 4, d: 4 }],
+  pinboard: o => [{ x: 0, y: (o.z ?? 0.18) + (o.h || 2.05) - 0.1, z: 0.45, i: 3.5, d: 3.5 }],
+  workdesk: o => [-1, 1].map(s => ({ x: s * (o.w || 2.95) / 4, y: 1.35, z: -(o.d || 0.65) / 2 + 0.3, i: 3, d: 3.5 })),
+  sewcabinet: () => [{ x: 0, y: 1.5, z: 0.25, i: 4, d: 3.5 }],
+};
+const FIXTURES = {};
+let EVENING = false;
+function fixtureOf(f) {
+  return FIXTURES[f.key] ??= { name: LIGHT_NAME[f.it.t] || 'Светильник', lvl: f.lvl, on: true, isOpen: true, meshes: [], lights: [],
+    toggle() { this.on = !this.on; applyFixture(this); }, label() { return this.on ? 'выключить' : 'включить'; } };
+}
+function applyFixture(rec) {
+  for (const mesh of rec.meshes) {
+    const g = mesh.userData.glow, mt = mesh.material;
+    if (g === 'ledWash') mesh.visible = rec.on;
+    else if (g) { mt.emissiveIntensity = rec.on ? (g === 'led' ? (EVENING ? 3 : 0.6) : (EVENING ? 2.2 : 0.4)) : 0; mesh.userData.ei = mt.emissiveIntensity; }
+  }
+  for (const L of rec.lights) { L.visible = EVENING; L.intensity = rec.on ? L.userData.i0 : 0; }   // через силу света — без перестройки шейдеров
+}
+function prepPart(g, keepUV) {   // то же, что делает put(), но для отдельного объекта
+  g = g.index ? g.toNonIndexed() : g;
+  for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+  if (!g.attributes.normal) g.computeVertexNormals();
+  if (!keepUV || !g.attributes.uv) worldUV(g);
+  g.clearGroups(); return g;
+}
+function buildFixture(f, rec, byMat, m) {
+  const grp = groups[CEIL_TYPES.includes(f.it.t) ? 'furnCeil' : FURN_GRP[f.lvl]], lgrp = groups[FURN_GRP[f.lvl]];
+  rec.meshes = []; rec.lights = [];
+  for (const [mat, gs] of Object.entries(byMat)) {
+    const mt = MAT[mat].clone(), mesh = new THREE.Mesh(mergeGeometries(gs, false), mt);
+    mesh.castShadow = !mt.transparent; mesh.receiveShadow = true;
+    mesh.userData = { door: rec, em: mt.emissive?.getHex() ?? 0, ei: mt.emissiveIntensity ?? 0, glow: GLOW.includes(mat) ? mat : null };
+    grp.add(mesh); rec.meshes.push(mesh);
+  }
+  for (const L of LIGHT_DEF[f.it.t]?.(f.it) ?? []) {   // свет живёт в группе этажа, чтобы в «Домике» не пропадал вместе с потолком
+    const p = new THREE.Vector3(L.x, L.y, L.z).applyMatrix4(m);
+    const light = L.spot ? new THREE.SpotLight(0xffd9a8, L.i, L.d, 0.95, 0.6, 2) : new THREE.PointLight(0xffd9a8, L.i, L.d, 2);
+    light.position.copy(p); light.userData.i0 = L.i;
+    if (L.spot) { light.target.position.copy(p).add(new THREE.Vector3(0, -1, 0)); lgrp.add(light.target); }
+    lgrp.add(light); rec.lights.push(light);
+  }
+  applyFixture(rec);
+}
+// собрать всю мебель в несколько больших объектов (быстро для видеокарты); skip — предмет, который сейчас двигают.
+// Светильники мастерской собираются отдельно (buildFixture), чтобы их можно было включать и выключать.
 function buildFurniture(skip) {
-  for (const g of [groups.furnBs, groups.furnGf, groups.furnAttic, groups.furnCeil]) for (const m of [...g.children]) { m.geometry.dispose(); g.remove(m); }
+  for (const g of [groups.furnBs, groups.furnGf, groups.furnAttic, groups.furnCeil]) for (const m of [...g.children]) { m.geometry?.dispose(); g.remove(m); }
   for (const f of FURN) {
-    const m = furnMatrix(f);
+    const m = furnMatrix(f), fx = f !== skip && LIGHT_TYPES.includes(f.it.t) ? fixtureOf(f) : null, byMat = {};
     f.bb = new THREE.Box3();
     for (const [g, mat, keepUV] of f.parts) {
       const c = g.clone().applyMatrix4(m); c.computeBoundingBox(); f.bb.union(c.boundingBox);
-      if (f !== skip) put(c, mat, CEIL_TYPES.includes(f.it.t) ? 'furnCeil' : FURN_GRP[f.lvl], keepUV);
+      if (fx) (byMat[mat] ??= []).push(prepPart(c, keepUV));
+      else if (f !== skip) put(c, mat, CEIL_TYPES.includes(f.it.t) ? 'furnCeil' : FURN_GRP[f.lvl], keepUV);
     }
+    if (fx) buildFixture(f, fx, byMat, m);
   }
   flush();
   updateFurnObst();
@@ -1518,6 +2393,7 @@ if (D.stairBs) OBST.bs.push({ x0: D.stairBs.x[0], x1: D.stairBs.x[1], y0: D.stai
 const polyArea = p => Math.abs(p.reduce((a, [x, y], i) => { const [x2, y2] = p[(i + 1) % p.length]; return a + x * y2 - x2 * y; }, 0) / 2);
 const roomLights = [];
 for (const r of D.rooms) {
+  if (r.fixtures) continue;   // свет в комнате дают её собственные светильники (мастерская)
   const area = polyArea(r.poly), floorZ = LZ[r.lvl];
   const xs = r.poly.map(p => p[0]), ys = r.poly.map(p => p[1]);
   const cx = xs.reduce((a, b) => a + b) / xs.length, cy = ys.reduce((a, b) => a + b) / ys.length;
@@ -1534,6 +2410,16 @@ for (const r of D.rooms) {
     L.position.set(x, z - 0.25, y); L.visible = false; L.userData.lvl = r.lvl;
     groups.lights.add(L); roomLights.push(L);
   }
+}
+// Свет ламп проходит сквозь стены (тени у них выключены ради скорости). Чтобы в мастерской с выключенными светильниками
+// было темно, пока камера внутри неё, лампы других комнат (и мансарды над ней), которые до неё достают, гасятся.
+const FIX_ROOMS = D.rooms.filter(r => r.fixtures).map(r => { const xs = r.poly.map(p => p[0]), ys = r.poly.map(p => p[1]);
+  return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys), z0: LZ[r.lvl], z1: LZ[r.lvl] + GF_H }; });
+const boxDist = (p, b) => Math.hypot(Math.max(b.x0 - p.x, 0, p.x - b.x1), Math.max(b.z0 - p.y, 0, p.y - b.z1), Math.max(b.y0 - p.z, 0, p.z - b.y1));
+for (const L of roomLights) { L.userData.i0 = L.intensity; L.userData.leak = FIX_ROOMS.some(b => boxDist(L.position, b) < L.distance); }
+function updateLeak() {
+  const c = camera.position, inside = FIX_ROOMS.some(b => c.x > b.x0 && c.x < b.x1 && c.z > b.y0 && c.z < b.y1 && c.y > b.z0 && c.y < b.z1 + 0.3);
+  for (const L of roomLights) L.intensity = inside && L.userData.leak ? 0 : L.userData.i0;
 }
 // свет у камина
 { const L = new THREE.PointLight(0xff8a3c, 4, 5, 2); L.position.set(18.8, 0.7, 3.4); groups.lights.add(L); }
@@ -1560,47 +2446,61 @@ function skyTex(stops) {
 const SKY = {
   day: skyTex([[0, '#5f97cf'], [0.42, '#a9cbe8'], [0.5, '#e4eef4'], [0.52, '#a9b39a'], [1, '#7f8a6e']]),
   evening: skyTex([[0, '#16204a'], [0.3, '#3d3f78'], [0.44, '#c9707a'], [0.5, '#f4a35e'], [0.52, '#4a4238'], [1, '#2b2722']]),
+  night: skyTex([[0, '#03061a'], [0.35, '#0b1233'], [0.48, '#1c2546'], [0.5, '#262c45'], [0.52, '#0b0c0a'], [1, '#060705']]),
+  night2: skyTex([[0, '#010210'], [0.4, '#050a22'], [0.49, '#0d1330'], [0.5, '#121830'], [0.52, '#060705'], [1, '#030403']]),
 };
 // Настоящее небо — фотопанорамы Poly Haven (CC0): ими же освещается дом и они отражаются в стёклах.
-// Пока панорама грузится (или нет интернета) — нарисованное небо и обычный рассеянный свет.
+// Пока панорама грузится (или нет интернета) — нарисованное небо и обычный рассеянный свет. Ночью — только нарисованное.
 const pmrem = new THREE.PMREMGenerator(renderer);
 const HDR = { day: 'kloofendal_48d_partly_cloudy_puresky', evening: 'belfast_sunset_puresky' }, hdrCache = {};
-let curMode = 'day';
+// ---------- время суток (кнопки 6:00 … 2:00) ----------
+// Север = +Y плана = +z сцены. Запад = +X, восток = −X (план повёрнут «севером вниз»).
+// sun — откуда светит солнце (ночью луна) относительно центра дома; si — сила; sky — небо; rot — поворот панорамы
+// (на рассвете закатная панорама развёрнута солнцем на восток); env — сила света неба; hemi — [цвет неба, цвет земли,
+// сила с панорамой, без неё]; amb — [с панорамой, без]; lamps — горят ли лампы в доме; exp — экспозиция.
+const TIMES = {
+  6:  { sky: 'evening', rot: Math.PI, sun: [-55, 7, -8], col: 0xffad78, si: 1.3, env: 0.12, hemi: [0x8a8fb8, 0x3a3430, 0.05, 0.12], amb: [0.02, 0.03], lamps: true, exp: 1.0 },
+  9:  { sky: 'day', sun: [-38, 22, -30], col: 0xffe9cc, si: 3.4, env: 0.38, hemi: [0xdfefff, 0xc9c4ba, 0.14, 0.9], amb: [0.04, 0.3], lamps: false, exp: 0.9 },
+  12: { sky: 'day', sun: [-14, 40, -34], col: 0xfff4e4, si: 4.5, env: 0.45, hemi: [0xdfefff, 0xc9c4ba, 0.15, 1.1], amb: [0.05, 0.35], lamps: false, exp: 0.9 },
+  18: { sky: 'evening', sun: [55, 9, -18], col: 0xff9a50, si: 1.6, env: 0.05, hemi: [0x5a66a0, 0x2a2420, 0.03, 0.06], amb: [0.015, 0.015], lamps: true, exp: 1.1 },
+  22: { sky: 'night', sun: [25, 40, 30], col: 0x9db4ff, si: 0.25, env: 0, hemi: [0x2a3560, 0x15130f, 0.04, 0.05], amb: [0.01, 0.01], lamps: true, exp: 1.15 },
+  2:  { sky: 'night2', sun: [-20, 35, 25], col: 0x8ea6ff, si: 0.14, env: 0, hemi: [0x1c2448, 0x0e0d0b, 0.03, 0.035], amb: [0.008, 0.008], lamps: true, exp: 1.15 },
+};
+let curTime = 12;
 function applyLights() {
-  const ev = curMode === 'evening', env = !!hdrCache[curMode];
-  scene.background = env ? hdrCache[curMode].bg : SKY[curMode];
-  scene.environment = env ? hdrCache[curMode].env : null;
-  scene.environmentIntensity = ev ? 0.22 : 0.45;
-  hemi.intensity = ev ? (env ? 0.1 : 0.35) : (env ? 0.15 : 1.1);
-  amb.intensity = ev ? 0.04 : (env ? 0.05 : 0.35);
+  const T = TIMES[curTime], hdr = HDR[T.sky] && hdrCache[T.sky];
+  scene.background = hdr ? hdr.bg : SKY[T.sky];
+  scene.environment = hdr ? hdr.env : null;
+  scene.backgroundRotation.set(0, T.rot || 0, 0); scene.environmentRotation.set(0, T.rot || 0, 0);
+  scene.environmentIntensity = T.env;   // вечером и ночью комнаты освещают лампы, а не небо (рассеянный свет проходит сквозь стены)
+  hemi.intensity = hdr ? T.hemi[2] : T.hemi[3];
+  amb.intensity = hdr ? T.amb[0] : T.amb[1];
 }
-function loadSky(mode) {
-  if (hdrCache[mode]) return applyLights();
-  new RGBELoader().load(`https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/${HDR[mode]}_2k.hdr`, t => {
+function loadSky(key) {
+  if (!HDR[key] || hdrCache[key]) return applyLights();
+  new RGBELoader().load(`https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/${HDR[key]}_2k.hdr`, t => {
     t.mapping = THREE.EquirectangularReflectionMapping;
-    hdrCache[mode] = { bg: t, env: pmrem.fromEquirectangular(t).texture };
+    hdrCache[key] = { bg: t, env: pmrem.fromEquirectangular(t).texture };
     applyLights();
   });
 }
-// Север = +Y плана = +z сцены. Запад = +X (план повёрнут «севером вниз»).
-function setMode(mode) {
-  const ev = mode === 'evening';
-  curMode = mode;
-  sun.color.set(ev ? 0xff9a50 : 0xfff4e4);
-  sun.intensity = ev ? 1.6 : 4.5;
-  sun.position.copy(CENTER).add(ev ? new THREE.Vector3(55, 9, -18) : new THREE.Vector3(-14, 40, -34));  // вечер — низкое солнце с запада; день — с юга
-  hemi.color.set(ev ? 0x5a66a0 : 0xdfefff); hemi.groundColor.set(ev ? 0x2a2420 : 0xc9c4ba);
-  applyLights(); loadSky(mode);
+function setTime(t) {
+  const T = TIMES[t], ev = T.lamps;
+  curTime = t;
+  sun.color.set(T.col); sun.intensity = T.si;
+  sun.position.copy(CENTER).add(new THREE.Vector3(...T.sun));
+  hemi.color.set(T.hemi[0]); hemi.groundColor.set(T.hemi[1]);
+  applyLights(); loadSky(T.sky);
   for (const L of roomLights) L.visible = ev || L.userData.lvl === 'bs';   // в цоколе окон нет — свет горит всегда
   MAT.lamp.emissiveIntensity = ev ? 2.2 : 0.05;
   MAT.globe.emissiveIntensity = ev ? 1.6 : 0.1;
   MAT.led.emissiveIntensity = ev ? 3 : 0;
-  renderer.toneMappingExposure = ev ? 1.1 : 0.9;
-  document.getElementById('bDay').classList.toggle('on', !ev);
-  document.getElementById('bEve').classList.toggle('on', ev);
+  EVENING = ev; for (const r of Object.values(FIXTURES)) applyFixture(r);
+  renderer.toneMappingExposure = T.exp;
+  for (const b of document.querySelectorAll('[data-time]')) b.classList.toggle('on', +b.dataset.time === t);
 }
-document.getElementById('bDay').onclick = () => setMode('day');
-document.getElementById('bEve').onclick = () => setMode('evening');
+const setMode = mode => setTime(mode === 'evening' ? 18 : 12);   // старые ссылки ?mode=evening
+for (const b of document.querySelectorAll('[data-time]')) b.onclick = () => setTime(+b.dataset.time);
 
 // =====================================================================
 //  Подписи комнат и переключатели
@@ -1850,6 +2750,48 @@ function updateHud() {
   }
 }
 
+// ---------- шторы и тюль (dom-data.js → drapes): открываются по наведению, щелчок / F ----------
+// Каждая половина — полоса ткани с постоянным числом складок: когда её собирают к краю, складки становятся глубже.
+// Состояния по кругу: 0 — всё открыто, 1 — закрыт тюль, 2 — закрыты и шторы.
+const DRAPES = [];
+function shapePanel(p) {
+  const pos = p.g.attributes.position, pitch = p.w / p.folds, A = 0.5 * Math.sqrt(Math.max(p.L.s0 * p.L.s0 - pitch * pitch, 0.00004));
+  for (let i = 0; i < pos.count; i++) {
+    const u = (i % (p.seg + 1)) / p.seg;
+    pos.setXYZ(i, p.side < 0 ? p.anchor + u * p.w : p.anchor - p.w + u * p.w, p.ys[i], p.L.y + A * Math.sin(u * p.folds * Math.PI * 2));   // обе половины слева направо (одинаковый обход граней)
+  }
+  pos.needsUpdate = true; p.g.computeVertexNormals(); p.g.computeBoundingSphere(); p.g.computeBoundingBox();
+}
+for (const dr of D.drapes || []) {
+  const z0 = LZ[dr.lvl], H = GF_H - 0.06, half = (dr.x[1] - dr.x[0]) / 2 + 0.04;
+  const rec = { name: dr.name, lvl: dr.lvl, meshes: [], panels: [], state: 0, isOpen: true };
+  const layers = [{ mat: 'tulle', y: dr.y, open: 0.32, step: 0.075, s0: 0.1, k: 1 }, { mat: 'drape', y: dr.y + 0.12, open: 0.45, step: 0.09, s0: 0.12, k: 2 }];
+  for (const L of layers) for (const side of [-1, 1]) {
+    const folds = Math.round(half / L.step), seg = folds * 4, g = new THREE.PlaneGeometry(1, H, seg, 1);
+    const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * folds * L.s0, uv.getY(i) * H);   // uv в метрах ткани
+    const ys = Array.from({ length: g.attributes.position.count }, (_, i) => z0 + 0.02 + g.attributes.position.getY(i) + H / 2);
+    const m = new THREE.Mesh(g, MAT[L.mat].clone());
+    m.castShadow = L.mat === 'drape'; m.receiveShadow = true;
+    m.userData = { door: rec, em: m.material.emissive.getHex(), ei: m.material.emissiveIntensity };
+    groups[dr.lvl].add(m); rec.meshes.push(m);
+    const p = { m, g, L, side, ys, folds, seg, anchor: side < 0 ? dr.x[0] : dr.x[1], w: L.open, wOpen: L.open, wClosed: half };
+    rec.panels.push(p); shapePanel(p);
+  }
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(dr.x[1] - dr.x[0], 0.03, 0.2), MAT.white);   // потолочный карниз
+  rail.position.set((dr.x[0] + dr.x[1]) / 2, z0 + GF_H - 0.015, dr.y + 0.06); groups.ceil.add(rail);
+  rec.toggle = () => { rec.state = (rec.state + 1) % 3; };
+  rec.label = () => ['закрыть тюль', 'закрыть шторы', 'открыть всё'][rec.state];
+  DRAPES.push(rec);
+}
+function updateDrapes(dt) {
+  for (const d of DRAPES) for (const p of d.panels) {
+    const goal = d.state >= p.L.k ? p.wClosed : p.wOpen;
+    if (p.w === goal) continue;
+    p.w = Math.abs(goal - p.w) < 0.003 ? goal : p.w + (goal - p.w) * Math.min(1, dt * 3);
+    shapePanel(p);
+  }
+}
+
 // ---------- двери: наведение, щелчок, клавиша F ----------
 // В прогулке дверь выбирается прицелом в центре экрана (не дальше 2,8 м), в облёте и «Домике» — мышью.
 const dray = new THREE.Raycaster(), dndc = new THREE.Vector2();
@@ -1857,16 +2799,17 @@ let hoverDoor = null, dDown = null, mouseNdc = null, tipMsg = null;
 const isShown = o => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
 function pickDoor(nx, ny, maxDist) {
   dndc.set(nx, ny); dray.setFromCamera(dndc, camera); dray.far = maxDist;
-  const hit = dray.intersectObjects(DOORS.flatMap(d => d.meshes).filter(isShown), false)[0];
+  const hit = dray.intersectObjects([...DOORS, ...DRAPES, ...Object.values(FIXTURES)].flatMap(d => d.meshes).filter(isShown), false)[0];
   return hit ? hit.object.userData.door : null;
 }
 function setHover(d) {
   if (hoverDoor === d) return;
-  for (const m of hoverDoor?.meshes ?? []) { m.material.emissive.setHex(m.userData.em); m.material.emissiveIntensity = m.userData.ei; }
+  for (const m of hoverDoor?.meshes ?? []) if (m.material.emissive && !m.userData.glow) { m.material.emissive.setHex(m.userData.em); m.material.emissiveIntensity = m.userData.ei; }
   hoverDoor = d;
-  for (const m of d?.meshes ?? []) { m.material.emissive.setHex(0x3d6f9e); m.material.emissiveIntensity = 0.45; }
+  for (const m of d?.meshes ?? []) if (m.material.emissive && !m.userData.glow) { m.material.emissive.setHex(0x3d6f9e); m.material.emissiveIntensity = 0.45; }
 }
 function toggleDoor(d) {
+  if (d.toggle) { d.toggle(); return; }   // шторы
   if (d.isOpen && isWalk() && player.lvl === d.lvl && hit(d.obst, player.x, player.y, R)) { tipMsg = { text: 'Отойди из проёма, чтобы закрыть', until: performance.now() + 1500 }; return; }
   d.isOpen = !d.isOpen; d.obst.off = d.isOpen;
   for (const k in mapStatic) delete mapStatic[k]; mapLvl = null;   // на карте закрытая дверь видна
@@ -1878,7 +2821,7 @@ function updateDoorHover() {
   else if (mouseNdc) setHover(pickDoor(mouseNdc.x, mouseNdc.y, 500)); else setHover(null);
   const msg = tipMsg && performance.now() < tipMsg.until ? tipMsg.text : null;
   if (!hoverDoor && !msg) { tip.style.display = 'none'; return; }
-  tip.textContent = msg || `${hoverDoor.name}: ${isWalk() ? 'щелчок или F' : 'щелчок'} — ${hoverDoor.isOpen ? 'закрыть' : 'открыть'}`;
+  tip.textContent = msg || `${hoverDoor.name}: ${isWalk() ? 'щелчок или F' : 'щелчок'} — ${hoverDoor.label ? hoverDoor.label() : hoverDoor.isOpen ? 'закрыть' : 'открыть'}`;
   tip.style.display = 'block';
   if (isWalk() || !mouseNdc) { tip.style.left = `calc(50% + 14px)`; tip.style.top = `calc(50% + 14px)`; }
   else { tip.style.left = (mouseNdc.cx + 14) + 'px'; tip.style.top = (mouseNdc.cy + 14) + 'px'; }
@@ -1917,8 +2860,8 @@ const TYPE_RU = { bed: 'Кровать', nightstand: 'Тумбочка', wardrob
   island: 'Кухонный остров', counter: 'Кухонная тумба', uppers: 'Навесные шкафы', tall: 'Шкаф-колонна', stool: 'Барный стул', toilet: 'Унитаз',
   basin: 'Раковина', tub: 'Ванна', shower: 'Душ', washer: 'Стиральная машина', unit: 'Техника', boiler: 'Бойлер', shelf: 'Стеллаж',
   bookshelf: 'Книжный стеллаж', car: 'Машина', bench: 'Скамья', plant: 'Растение', fireplace: 'Камин', pendants: 'Люстра-шары',
-  pendLine: 'Подвесные лампы', floorlamp: 'Торшер', curtain: 'Штора', art: 'Картина', ironing: 'ВТО (гладильный стол)',
-  sewtable: 'Стол со швейной машиной', cuttable: 'Раскроечный стол', fabricshelf: 'Стеллаж с тканями', mannequin: 'Манекен',
+  pendLine: 'Подвесные лампы', floorlamp: 'Торшер', curtain: 'Штора', art: 'Картина', ironing: 'Гладильный стол Jack L5-15F + парогенератор Malkan',
+  sewtable: 'Промышленная машина JACK', cuttable: 'Раскроечный стол', cutisland: 'Раскроечный остров', sewcabinet: 'Шкаф мастерской', taskchair: 'Рабочее кресло', tubchair: 'Кресло букле', drumtable: 'Столик из травертина', imacdesk: 'Стол с iMac', wainscot: 'Стеновые панели', wctoilet: 'Подвесной унитаз', powderbasin: 'Раковина с полотенцем', brassmirror: 'Зеркало и бра', wcshelf: 'Полка с декором', goldprint: 'Картина', paperholder: 'Держатель бумаги', toiletbrush: 'Ёршик', downlight: 'Точечный светильник', strelitzia: 'Стрелиция в кашпо', workdesk: 'Рабочее место с iMac', deskchair: 'Рабочее кресло', brasslamp: 'Латунный торшер', pinboard: 'Доска вдохновения', floormirror: 'Зеркало в рост', podium: 'Подиум для примерки', tracklight: 'Трековый свет', conePendant: 'Подвесные лампы', driedvase: 'Вазы с сухоцветами', fabricshelf: 'Стеллаж с тканями', mannequin: 'Манекен',
   gridceiling: 'Решётчатый потолок', screenwall: 'Экран с тумбой и полками', cinemasofa: 'П-образный диван', roundtable: 'Круглый столик',
   xmastree: 'Новогодняя ёлка', coffeebar: 'Кофейный буфет', treadmill: 'Беговая дорожка', spinbike: 'Велотренажёр', rower: 'Гребной тренажёр', cabletower: 'Кроссовер (блоки)', powerrack: 'Силовая рама', platetree: 'Стойка для блинов', dbrack: 'Стойка с гантелями', adjbench: 'Регулируемая скамья', kbrack: 'Полка с гирями', yogaroll: 'Коврики и мячи', walltv: 'Экран для занятий', pouf: 'Пуф', ottoman: 'Кожаный пуф', sconce: 'Бра', storageshelf: 'Стеллаж с контейнерами и чемоданами' };
 const LOW_PICK = ['rug', 'pendants', 'pendLine', 'curtain'];   // их выбираем, только если под мышью больше ничего нет
@@ -2054,9 +2997,12 @@ setMode('day');
 {
   const Q = new URLSearchParams(location.search), v = Q.get('view') || 'orbit';
   if (Q.get('mode') === 'evening') setMode('evening');
+  if (Q.get('time') && TIMES[Q.get('time')]) setTime(+Q.get('time'));   // ?time=6, 9, 12, 18, 22, 2
   if (Q.get('labels') === '0') showNames = false;
   if (Q.get('roof') === '0') tRoof.checked = false;
   if (Q.get('doors') === 'closed') for (const d of DOORS) { d.isOpen = false; d.obst.off = false; }   // для проверки
+  if (Q.get('lights') === 'off') for (const r of Object.values(FIXTURES)) { r.on = false; applyFixture(r); }   // для проверки темноты
+  if (Q.get('drapes')) for (const d of DRAPES) { d.state = +Q.get('drapes'); for (const p of d.panels) { p.w = d.state >= p.L.k ? p.wClosed : p.wOpen; shapePanel(p); } }   // drapes=1 тюль, 2 шторы
   if (Q.get('ui') === '0') for (const id of ['ui', 'rooms', 'hint', 'fps']) $(id).style.visibility = 'hidden';
   if (v.startsWith('walk')) {
     const lvl = v.slice(5), s = START[lvl], p = (Q.get('pos') || '').split(',').map(Number);
@@ -2170,7 +3116,7 @@ let frames = 0, last = performance.now();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (isWalk()) updateWalk(dt); else controls.update();
-  updateDoors(dt); updateDoorHover();
+  updateDoors(dt); updateDrapes(dt); updateLeak(); updateDoorHover();
   draw(); labelRenderer.render(scene, camera);
   updateHud();
   if ($('map').style.display !== 'none') drawMap();
