@@ -1432,7 +1432,9 @@ function encausticMat(wM, hM, px = 512) {   // узорная плитка во 
 }
 function buildStair(s, grp) {
   const r = (s.z1 - s.z0) / s.risers, perFlight = s.risers / 2 - 1;
-  const run = perFlight * s.tread, xa = [s.x[0], s.x[0] + s.flight], xb = [s.x[1] - s.flight, s.x[1]];
+  const run = perFlight * s.tread;
+  let xa = [s.x[0], s.x[0] + s.flight], xb = [s.x[1] - s.flight, s.x[1]];
+  if (s.mirror) [xa, xb] = [xb, xa];   // mirror: 1-й марш справа (у x[1]), 2-й — слева
   const land = s.y[1] - run, fw = s.flight;
   MAT.treadTile ??= encausticMat(fw - 0.08, s.tread - 0.05);
   const landKey = 'landTile' + Math.round((land - s.y[0]) * 100);
@@ -3928,7 +3930,8 @@ function buildFurniture(skip) {
 buildFurniture(null);
 for (const [x, y] of D.columns) OBST.gf.push({ x0: x - 0.15, x1: x + 0.15, y0: y - 0.15, y1: y + 0.15, k: 'wall' });
 for (const b of D.blocks) if (b.z[0] < 1) OBST.gf.push({ x0: b.x[0], x1: b.x[1], y0: b.y[0], y1: b.y[1], k: 'wall' });
-OBST.gf.push({ x0: D.stair.x[0], x1: D.stair.x[1], y0: D.stair.y[0], y1: D.stair.y[1], k: 'stair' });
+// препятствие лестницы: весь прямоугольник или список obst [[x0, x1, y0, y1], …] (чтобы под площадкой можно было ходить)
+for (const o of D.stair.obst || [[D.stair.x[0], D.stair.x[1], D.stair.y[0], D.stair.y[1]]]) OBST.gf.push({ x0: o[0], x1: o[1], y0: o[2], y1: o[3], k: 'stair' });
 if (D.stairBs) OBST.bs.push({ x0: D.stairBs.x[0], x1: D.stairBs.x[1], y0: D.stairBs.y[0], y1: D.stairBs.y[1], k: 'stair' });
 
 // =====================================================================
@@ -4269,7 +4272,8 @@ function goWalk(lvl, x, y, yaw) { placePlayer(lvl, x, y, yaw); setView('walk-' +
 
 // ---------- лестница: E — на другой этаж ----------
 const ST = D.stair;
-const STAIR = { bs: { x: ST.x[0] + ST.flight / 2, y: ST.y[1] + 0.6 }, gf: { x: ST.x[0] + ST.flight / 2, y: ST.y[1] + 0.6 }, attic: { x: ST.x[1] - ST.flight / 2, y: ST.y[1] + 0.5 } };
+const SX1 = ST.mirror ? ST.x[1] - ST.flight / 2 : ST.x[0] + ST.flight / 2, SX2 = ST.mirror ? ST.x[0] + ST.flight / 2 : ST.x[1] - ST.flight / 2;   // низ 1-го и верх 2-го марша
+const STAIR = { bs: { x: SX1, y: ST.y[1] + 0.6 }, gf: { x: SX1, y: ST.y[1] + 0.6 }, attic: { x: SX2, y: ST.y[1] + 0.5 } };
 // куда ведёт лестница: E — наверх, Q — вниз (в цоколь)
 const STAIR_GO = { bs: { KeyE: 'gf' }, gf: D.levels.bs ? { KeyE: 'attic', KeyQ: 'bs' } : { KeyE: 'attic' }, attic: { KeyE: 'gf' } };
 const nearStair = () => Math.hypot(player.x - STAIR[player.lvl].x, player.y - STAIR[player.lvl].y) < 1.6;
