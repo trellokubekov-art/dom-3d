@@ -282,6 +282,15 @@ MAT.whitePanel = std({ map: TEX.panelWhite, roughness: 0.6 });
 MAT.graphite = std({ map: TEX.plaster, color: 0x4a4d51, roughness: 0.85 });
 MAT.oakFrame = std({ map: TEX.oak, color: 0xd2a874, roughness: 0.55 });
 const FRAME = D.meta.frameMat || 'frame';   // материал оконных рам и дверных коробок
+// интерьер дома 2: тёмный камень стены ТВ (плиты 60 × 60), чёрный мрамор, тёмное стекло, тёмные шторы, чаша бассейна
+TEX.darkStone = tex(512, 1.2, (g, p) => { speckle(g, p, '#3b3c3f', 0.12, 9000); g.strokeStyle = '#26272a'; g.lineWidth = 3; for (const v of [0, p / 2]) { g.strokeRect(v + 1, 1, p / 2 - 2, p / 2 - 2); g.strokeRect(1, v + 1, p / 2 - 2, p / 2 - 2); } });
+MAT.darkStone = std({ map: TEX.darkStone, roughness: 0.75 });
+TEX.blackMarble = tex(512, 1.0, (g, p) => { speckle(g, p, '#141416', 0.05, 2000); g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1.5;
+  for (let i = 0; i < 7; i++) { g.beginPath(); let x = rnd() * p, y = 0; g.moveTo(x, y); while (y < p) { y += 20 + rnd() * 40; x += (rnd() - 0.5) * 70; g.lineTo(x, y); } g.stroke(); } });
+MAT.blackMarble = std({ map: TEX.blackMarble, roughness: 0.12 });
+MAT.darkGlass = new THREE.MeshStandardMaterial({ color: 0x0f1317, roughness: 0.05, metalness: 0.3, transparent: true, opacity: 0.88 });
+MAT.drapeDark = new THREE.MeshStandardMaterial({ map: TEX.fabric, color: 0x474a50, roughness: 1, side: THREE.DoubleSide });
+MAT.poolBlue = std({ color: 0x8fd0e4, roughness: 0.3 });
 // ---------- цоколь: кинозал и кладовая ----------
 MAT.walnutPanel = std({ roughness: 0.6, map: tex(512, 2.4, (g, p) => {   // ореховые стеновые панели 1,2 × 1,5 м с узким швом
   g.fillStyle = '#5a3c29'; g.fillRect(0, 0, p, p);
@@ -1325,7 +1334,7 @@ for (const { w, L, ux, uy, ops } of walkWalls) {
   const pass = [];
   for (const op of ops) {
     const zs = op.pts.map(p => p[1]);
-    if (op.o.k === 'gate' || Math.min(...zs) > 0.05 || Math.max(...zs) < 1.9) continue;
+    if (op.o.k === 'gate' || op.o.k === 'win' || Math.min(...zs) > 0.05 || Math.max(...zs) < 1.9) continue;   // окно от пола — не дверь
     const bottom = op.pts.filter(p => p[1] < 1e-3).map(p => p[0]);
     // у арки с раздвижными створками проход — только между приоткрытыми створками
     const vis = op.o.k === 'portal' ? (Math.max(...bottom) - Math.min(...bottom)) * 0.275 + 0.03 : op.o.k === 'arch' ? (Math.max(...bottom) - Math.min(...bottom)) / 2 * (1 - (op.o.open ?? 0.55)) + 0.035 : 0;
@@ -3693,6 +3702,111 @@ const BUILD = {
     return [[g.translate(0, h / 2 + 0.02, 0), o.m || 'curtain'],   // m — ткань (drape — плотная бежевая)
             [new THREE.CylinderGeometry(0.01, 0.01, w + 0.1, 8).rotateZ(Math.PI / 2).translate(0, h + 0.05, 0), 'matBlack']];
   },
+  // ================= ДОМ 2 (Вилла Флорида 3) по интерьерным референсам заказчика =================
+  stoneWall(o) {   // тёмная каменная стена во всю высоту: ТВ, ниша биокамина, открытые полки с торца, низкая чёрная тумба
+    const w = o.w || 5.3, h = o.h || GF_H, d = 0.3, nw = 2.4, nh = 0.5, ny = 0.45, sh = 0.95;   // ниша камина; полки шириной 0,95 у -x
+    const x0 = -w / 2 + sh, r = [
+      [Bx(w - sh - nw, h, d, (x0 + nw / 2 + w / 2) / 2 + nw / 4, 0, 0), 'darkStone'],            // правее ниши
+      [Bx(nw, ny, d, x0 + nw / 2, 0, 0), 'darkStone'], [Bx(nw, h - ny - nh, d, x0 + nw / 2, ny + nh, 0), 'darkStone'],   // под и над нишей
+      [Bx(nw, nh, 0.06, x0 + nw / 2, ny, -d / 2 + 0.03), 'black'], [Bx(nw, 0.02, d - 0.06, x0 + nw / 2, ny, 0), 'black'],   // дно и задник ниши
+      [Bx(nw - 0.5, 0.1, 0.1, x0 + nw / 2, ny + 0.02, 0), 'fire'],                                 // пламя биокамина
+      [Bx(0.05, h, d, -w / 2 + 0.025, 0, 0), 'darkStone'], [Bx(sh, h, 0.05, -w / 2 + sh / 2, 0, -d / 2 + 0.025), 'darkStone'],   // ниша полок: бок и задник
+      [Bx(sh, 0.05, d, -w / 2 + sh / 2, h - 0.05, 0), 'darkStone'], [Bx(0.04, h, d, x0 - 0.02, 0, 0), 'darkStone'],
+      [RB(1.8, 1.02, 0.05, 0.01, x0 + nw / 2, 1.35, d / 2 + 0.025), 'black'], [Bx(1.74, 0.96, 0.004, x0 + nw / 2, 1.38, d / 2 + 0.052), 'screen'],   // телевизор
+      [Bx(w - sh - 0.1, 0.34, 0.32, sh / 2 + 0.05, 0, d / 2 + 0.16), 'matBlack']];                  // низкая тумба
+    for (let i = 0; i < 4; i++) {
+      const y = 0.75 + i * 0.5, x = -w / 2 + sh / 2;
+      r.push([Bx(sh - 0.08, 0.03, d - 0.08, x, y, 0), 'white']);
+      if (i % 2 === 0) r.push([Bx(0.18, 0.22, 0.14, x - 0.2, y + 0.03, 0), 'book2'], [Bx(0.14, 0.18, 0.12, x + 0.02, y + 0.03, 0), 'book3']);
+      else r.push([Cy(0.06, 0.1, x + 0.15, y + 0.03, 0, 0.07, 20), 'ceramic'], leafy(0.1, x + 0.15, y + 0.2, 0, 'leafLight'));
+    }
+    for (let i = 0; i < 6; i++) r.push([Cy(0.03, 0.01, x0 + 0.3 + i * (w - sh - 0.6) / 5, h - 0.012, d / 2 + 0.25, 0.03, 16), 'lamp']);   // споты над стеной
+    return r;
+  },
+  cubeSpot(o) {   // белый куб-светильник на потолке с двумя лампами (референс гостиной)
+    const n = o.n || 2, top = o.top ?? GF_H, r = [];
+    for (let i = 0; i < n; i++) { const x = (i - (n - 1) / 2) * 0.13; r.push([Bx(0.12, 0.12, 0.12, x, top - 0.12, 0), 'white'], [Cy(0.04, 0.004, x, top - 0.124, 0, 0.04, 16), 'lamp']); }
+    return r;
+  },
+  blackIsland(o) {   // остров: белые фасады, чёрный мрамор со «стенками» до пола, варочная панель, круглая стальная вытяжка
+    const w = o.w || 2.8, d = o.d || 1.0, h = 0.92, top = o.top ?? GF_H, hx = o.hx ?? w / 5;
+    const r = [[Bx(w - 0.08, h - 0.04, d - 0.04, 0, 0, 0), 'lacquer'], [Bx(w - 0.3, 0.08, d - 0.3, 0, 0, 0), 'black'],
+      [Bx(w + 0.08, 0.04, d + 0.06, 0, h - 0.04, 0), 'blackMarble'], [Bx(0.04, h, d + 0.06, -w / 2 - 0.02, 0, 0), 'blackMarble'], [Bx(0.04, h, d + 0.06, w / 2 + 0.02, 0, 0), 'blackMarble'],
+      [Bx(0.62, 0.008, 0.52, hx, h, 0), 'ovenGlass'], [Cy(0.11, 0.14, -w / 4, h, 0, 0.09, 20), 'glass'],
+      [Cy(0.24, 0.72, hx, 1.62, 0, 0.24, 32), 'steel'], [Cy(0.09, Math.max(0.1, top - 2.34), hx, 2.34, 0, 0.09, 20), 'steel'], [Cy(0.2, 0.01, hx, 1.615, 0, 0.2, 24), 'lamp']];
+    for (let i = 1; i < Math.round(w / 0.7); i++) r.push([Bx(0.004, h - 0.2, 0.004, -w / 2 + 0.04 + i * (w - 0.08) / Math.round(w / 0.7), 0.1, d / 2 - 0.018), 'black']);
+    for (const [dx, dz] of [[-0.14, -0.13], [0.14, -0.13], [-0.14, 0.13], [0.14, 0.13]]) r.push([Cy(0.09, 0.004, hx + dx, h + 0.008, dz, 0.09, 24), 'steel']);
+    return r;
+  },
+  wireStool() {   // чёрный проволочный барный стул
+    const r = [[Cy(0.18, 0.03, 0, 0.74, 0, 0.18, 24), 'matBlack'], [Cy(0.19, 0.008, 0, 0.77, 0, 0.19, 24), 'black']];
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) r.push([Cy(0.007, 0.74, sx * 0.17, 0, sz * 0.17), 'matBlack']);
+    r.push([Bx(0.36, 0.012, 0.012, 0, 0.22, -0.17), 'matBlack'], [Bx(0.36, 0.012, 0.012, 0, 0.22, 0.17), 'matBlack']);
+    for (let i = 0; i < 7; i++) r.push([Cy(0.004, 0.3, -0.15 + i * 0.05, 0.77, -0.19), 'matBlack']);
+    r.push([Bx(0.34, 0.012, 0.012, 0, 1.06, -0.19), 'matBlack']);
+    return r;
+  },
+  wireChair() {   // чёрный стул из проволоки (референс столовой)
+    const r = [[Bx(0.44, 0.02, 0.44, 0, 0.45, 0), 'matBlack']];
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) r.push([Cy(0.008, 0.45, sx * 0.2, 0, sz * 0.2), 'matBlack']);
+    for (let i = 0; i < 9; i++) r.push([Cy(0.004, 0.42, -0.2 + i * 0.05, 0.47, -0.21), 'matBlack']);
+    r.push([Bx(0.44, 0.015, 0.015, 0, 0.88, -0.21), 'matBlack']);
+    return r;
+  },
+  glassTable(o) {   // обеденный стол: тёмное стекло на чёрном каркасе
+    const w = o.w || 2.0, d = o.d || 0.95;
+    return [[Bx(w, 0.012, d, 0, 0.73, 0), 'darkGlass'], [Bx(w - 0.1, 0.03, 0.05, 0, 0.70, d / 2 - 0.1), 'matBlack'], [Bx(w - 0.1, 0.03, 0.05, 0, 0.70, -d / 2 + 0.1), 'matBlack'],
+      [Bx(0.06, 0.70, d - 0.3, -w / 2 + 0.25, 0, 0), 'matBlack'], [Bx(0.06, 0.70, d - 0.3, w / 2 - 0.25, 0, 0), 'matBlack'],
+      [Cy(0.05, 0.22, 0, 0.74, 0, 0.04, 20), 'ceramic'], leafy(0.1, 0, 1.0, 0, 'leafLight')];
+  },
+  modSofa(o) {   // серый модульный диван из кубических подушек
+    const w = o.w || 2.7, d = o.d || 1.0, c = o.c || 'fabric', n = Math.max(2, Math.round(w / 0.9)), mw = w / n, r = [];
+    for (let i = 0; i < n; i++) {
+      const x = -w / 2 + (i + 0.5) * mw;
+      r.push([RB(mw - 0.02, 0.4, d, 0.07, x, 0.04, 0), c], [RB(mw - 0.04, 0.12, d - 0.34, 0.05, x, 0.44, 0.15), c], [RB(mw - 0.04, 0.38, 0.32, 0.09, x, 0.44, -d / 2 + 0.18), c]);
+      if (i % 2 === 0) r.push([RB(0.42, 0.4, 0.14, 0.07).rotateZ(0.12).rotateX(-0.2).translate(x + 0.05, 0.6, -d / 2 + 0.42), 'blanket']);
+    }
+    r.push([RB(0.26, 0.26, d, 0.08, -w / 2 - 0.12, 0.44, 0), c], [RB(0.26, 0.26, d, 0.08, w / 2 + 0.12, 0.44, 0), c],
+           [RB(0.26, 0.4, d, 0.07, -w / 2 - 0.12, 0.04, 0), c], [RB(0.26, 0.4, d, 0.07, w / 2 + 0.12, 0.04, 0), c]);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) r.push([Cy(0.02, 0.04, sx * (w / 2 - 0.1), 0, sz * (d / 2 - 0.1)), 'matBlack']);
+    return r;
+  },
+  coffeeBlack() {   // чёрный квадратный журнальный столик на стальной раме + декор
+    const r = [[Bx(0.95, 0.03, 0.95, 0, 0.35, 0), 'matBlack']];
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) r.push([Bx(0.02, 0.36, 0.02, sx * 0.45, 0, sz * 0.45), 'steel']);
+    for (const s of [-1, 1]) r.push([Bx(0.9, 0.015, 0.015, 0, 0.02, s * 0.45), 'steel'], [Bx(0.015, 0.015, 0.9, s * 0.45, 0.02, 0), 'steel']);
+    r.push([Cy(0.05, 0.1, 0.15, 0.38, 0.12, 0.05, 20), 'ceramic'], [Cy(0.045, 0.08, 0.3, 0.38, -0.08, 0.045, 20), 'ceramic'], [Bx(0.12, 0.12, 0.12, -0.25, 0.38, 0.05), 'brass'],
+           [Bx(0.3, 0.02, 0.22, -0.1, 0.38, -0.25), 'book1']);
+    return r;
+  },
+  slatScreen(o) {   // перегородка из дубовых реек от пола до потолка
+    const w = o.w || 1.2, h = o.h || GF_H, r = [[Bx(w, 0.04, 0.06, 0, 0, 0), 'oak'], [Bx(w, 0.04, 0.06, 0, h - 0.04, 0), 'oak']];
+    for (let x = -w / 2 + 0.03; x < w / 2; x += 0.1) r.push([Bx(0.04, h - 0.08, 0.06, x, 0.04, 0), 'oak']);
+    return r;
+  },
+  ovenWall(o) {   // белые шкафы-колонны до потолка без ручек, колонна из 4 чёрных духовок
+    const w = o.w || 2.1, h = o.h || GF_H - 0.03, d = 0.6, ox = o.ox ?? -w / 2 + 0.33, r = [[Bx(w, h, d, 0, 0, 0), 'lacquer'], [Bx(w, 0.08, 0.02, 0, 0, d / 2 - 0.005), 'black']];
+    const cols = Math.round(w / 0.6);
+    for (let i = 1; i < cols; i++) r.push([Bx(0.003, h - 0.1, 0.003, -w / 2 + i * w / cols, 0.08, d / 2 + 0.001), 'black']);
+    for (const y of [0.9, 1.75]) r.push([Bx(w, 0.003, 0.003, 0, y, d / 2 + 0.001), 'black']);
+    for (let i = 0; i < 4; i++) r.push([Bx(0.56, 0.42, 0.03, ox, 0.95 + i * 0.46, d / 2 + 0.005), 'ovenGlass'], [Bx(0.5, 0.012, 0.03, ox, 0.95 + i * 0.46 + 0.35, d / 2 + 0.03), 'chrome']);
+    return r;
+  },
+  whiteRun(o) {   // белая кухонная тумба без ручек, чёрная столешница и фартук, мойка, навесные шкафы с LED
+    const w = o.w || 3.6, d = 0.62, h = 0.9, top = o.top ?? GF_H, sx = o.sx ?? 0, r = [[Bx(w, h, d, 0, 0, 0), 'lacquer'], [Bx(w, 0.08, 0.02, 0, 0, d / 2 - 0.005), 'black'],
+      [Bx(w, 0.03, d + 0.02, 0, h, 0), 'blackMarble'], [Bx(w, 0.6, 0.015, 0, h + 0.03, -d / 2 + 0.008), 'blackMarble'],
+      [Bx(0.7, 0.012, 0.42, sx, h + 0.03, 0.02), 'steel'], [Cy(0.012, 0.32, sx, h + 0.03, -0.2), 'chrome'], [Bx(0.02, 0.02, 0.22, sx, h + 0.33, -0.1), 'chrome'],
+      [Bx(w, top - 1.45 - 0.05, 0.36, 0, 1.45, -d / 2 + 0.18), 'lacquer'], [Bx(w - 0.1, 0.01, 0.02, 0, 1.44, -d / 2 + 0.34), 'led']];
+    const cols = Math.round(w / 0.6);
+    for (let i = 1; i < cols; i++) { const x = -w / 2 + i * w / cols; r.push([Bx(0.003, h - 0.1, 0.003, x, 0.08, d / 2 + 0.001), 'black'], [Bx(0.003, top - 1.55, 0.003, x, 1.5, -d / 2 + 0.361), 'black']); }
+    return r;
+  },
+  pool(o) {   // бассейн в саду: травертиновый борт, голубая чаша, вода (земля на TERR)
+    const w = o.w || 8, d = o.d || 4, b = 0.45, g = TERR, hb = 0.42;   // борт на 0,42 выше газона (газон — сплошная плоскость, вниз не вырезать)
+    return [[Bx(w + 2 * b, hb, b, 0, g, -d / 2 - b / 2), 'travertine'], [Bx(w + 2 * b, hb, b, 0, g, d / 2 + b / 2), 'travertine'],
+      [Bx(b, hb, d, -w / 2 - b / 2, g, 0), 'travertine'], [Bx(b, hb, d, w / 2 + b / 2, g, 0), 'travertine'],
+      [Bx(w, hb - 0.1, d, 0, g, 0), 'poolBlue'], [Bx(w, 0.02, d, 0, g + hb - 0.1, 0), 'water']];
+  },
 };
 const ROT = { '+y': 0, '-y': Math.PI, '+x': Math.PI / 2, '-x': -Math.PI / 2 };
 
@@ -3838,8 +3952,8 @@ groups.furnGf = new THREE.Group(); groups.gf.add(groups.furnGf);
 groups.furnAttic = new THREE.Group(); groups.attic.add(groups.furnAttic);
 groups.furnBs = new THREE.Group(); groups.bs.add(groups.furnBs);
 groups.furnCeil = new THREE.Group(); groups.ceil.add(groups.furnCeil);   // потолочные предметы прячутся вместе с потолками в «Домике»
-const FURN_GRP = { bs: 'furnBs', gf: 'furnGf', attic: 'furnAttic' }, CEIL_TYPES = ['gridceiling', 'tracklight', 'conePendant', 'downlight', 'ceilbeams', 'cylspot', 'ringPendant', 'collarBeams', 'woodPendant'];
-const NO_OBST = ['tenniscourt', 'rug', 'arcLamp', 'slatWall', 'landscapeArt', 'woodPendant', 'collarBeams', 'ringPendant', 'ledMirror', 'breezewall', 'tileband', 'reliefpanel', 'dryrack', 'cylspot', 'domePendant', 'ledshelves', 'hangrail', 'ceilbeams', 'pendants', 'pendLine', 'uppers', 'curtain', 'art', 'gridceiling', 'sconce', 'tracklight', 'conePendant', 'pinboard', 'floormirror', 'wainscot', 'goldprint', 'paperholder', 'brassmirror', 'downlight', 'wcshelf'];
+const FURN_GRP = { bs: 'furnBs', gf: 'furnGf', attic: 'furnAttic' }, CEIL_TYPES = ['gridceiling', 'tracklight', 'conePendant', 'downlight', 'cubeSpot', 'ceilbeams', 'cylspot', 'ringPendant', 'collarBeams', 'woodPendant'];
+const NO_OBST = ['tenniscourt', 'rug', 'cubeSpot', 'arcLamp', 'slatWall', 'landscapeArt', 'woodPendant', 'collarBeams', 'ringPendant', 'ledMirror', 'breezewall', 'tileband', 'reliefpanel', 'dryrack', 'cylspot', 'domePendant', 'ledshelves', 'hangrail', 'ceilbeams', 'pendants', 'pendLine', 'uppers', 'curtain', 'art', 'gridceiling', 'sconce', 'tracklight', 'conePendant', 'pinboard', 'floormirror', 'wainscot', 'goldprint', 'paperholder', 'brassmirror', 'downlight', 'wcshelf'];
 const LS_PFX = D.meta.id ? 'dom3d-' + D.meta.id : 'dom3d';   // у каждого дома свои правки: все file://-страницы делят одно хранилище
 const EDIT_LS = LS_PFX + '-furniture-v1';
 const norm360 = d => ((Math.round(d) % 360) + 360) % 360;
@@ -3864,7 +3978,7 @@ function updateFurnObst() {
 }
 // ---------- светильники мастерской: каждый — отдельный объект со своим светом, включается наведением + щелчок / F ----------
 // Светящиеся части (lamp, led, ledWash) у каждого светильника свои; вечером у включённого горит настоящий источник света.
-const LIGHT_TYPES = ['tenniscourt', 'tracklight', 'conePendant', 'brasslamp', 'pinboard', 'workdesk', 'sewcabinet'], GLOW = ['lamp', 'led', 'ledWash', 'lanternGlow'];
+const LIGHT_TYPES = ['tenniscourt', 'cubeSpot', 'stoneWall', 'tracklight', 'conePendant', 'brasslamp', 'pinboard', 'workdesk', 'sewcabinet'], GLOW = ['lamp', 'led', 'ledWash', 'lanternGlow'];
 const LIGHT_NAME = { tenniscourt: 'Фонари у корта', tracklight: 'Трековый свет', conePendant: 'Лампа над островом', brasslamp: 'Торшер', pinboard: 'Лампа над доской',
   workdesk: 'Подсветка стеллажа', sewcabinet: 'Подсветка шкафа' };
 const FIX_PICK = { tenniscourt: ['lanternGlow', 'lanternBlack'] };   // у корта светильник — только фонари, а не весь корт с изгородью
@@ -3877,6 +3991,8 @@ const LIGHT_DEF = {
   pinboard: o => [{ x: 0, y: (o.z ?? 0.18) + (o.h || 2.05) - 0.1, z: 0.45, i: 3.5, d: 3.5 }],
   workdesk: o => [-1, 1].map(s => ({ x: s * (o.w || 2.95) / 4, y: 1.35, z: -(o.d || 0.65) / 2 + 0.3, i: 3, d: 3.5 })),
   sewcabinet: () => [{ x: 0, y: 1.5, z: 0.25, i: 4, d: 3.5 }],
+  cubeSpot: o => [{ x: 0, y: (o.top ?? GF_H) - 0.35, z: 0, i: 8, d: 6 }],
+  stoneWall: o => [-0.3, 0.3].map(s => ({ x: s * (o.w || 5.3), y: (o.h || GF_H) - 0.5, z: 0.5, i: 6, d: 5 })),
 };
 const FIXTURES = {};
 let EVENING = false;
@@ -4529,7 +4645,7 @@ $('bShot').onclick = () => {
 //  Расстановка сама запоминается в браузере; «Сохранить в файл» скачивает её, чтобы перенести в dom-data.js.
 //  Работает для любой мебели из dom-data.js — у каждого предмета должен быть свой id.
 // =====================================================================
-const TYPE_RU = { tenniscourt: 'Теннисный корт с садом', bed: 'Кровать', nightstand: 'Тумбочка', wardrobe: 'Шкаф', cabinet: 'Комод', desk: 'Стол', chair: 'Стул', sofa: 'Диван',
+const TYPE_RU = { tenniscourt: 'Теннисный корт с садом', stoneWall: 'Каменная стена с ТВ и биокамином', cubeSpot: 'Светильник-куб', blackIsland: 'Остров с чёрным мрамором и вытяжкой', wireStool: 'Барный стул', wireChair: 'Стул', glassTable: 'Стол со стеклом', modSofa: 'Модульный диван', coffeeBlack: 'Журнальный столик', slatScreen: 'Перегородка из реек', ovenWall: 'Шкафы с духовками', whiteRun: 'Кухонная тумба с мойкой', pool: 'Бассейн', bed: 'Кровать', nightstand: 'Тумбочка', wardrobe: 'Шкаф', cabinet: 'Комод', desk: 'Стол', chair: 'Стул', sofa: 'Диван',
   sofaL: 'Угловой диван', armchair: 'Кресло', ctable: 'Столик', rug: 'Ковёр', tvunit: 'ТВ-тумба с телевизором', table: 'Обеденный стол',
   island: 'Кухонный остров', counter: 'Кухонная тумба', uppers: 'Навесные шкафы', tall: 'Шкаф-колонна', stool: 'Барный стул', toilet: 'Унитаз',
   basin: 'Раковина', tub: 'Ванна', shower: 'Душ', washer: 'Стиральная машина', unit: 'Техника', boiler: 'Бойлер', shelf: 'Стеллаж',
@@ -4765,7 +4881,7 @@ function selfCheck() {
     const lvl = w.lvl;
     for (const op of ops) {
       const zs = op.pts.map(p => p[1]);
-      if (op.o.k === 'gate' || Math.min(...zs) > 0.05 || Math.max(...zs) < 1.9) continue;
+      if (op.o.k === 'gate' || op.o.k === 'win' || Math.min(...zs) > 0.05 || Math.max(...zs) < 1.9) continue;   // окно от пола — не дверь
       const bot = op.pts.filter(p => p[1] < 1e-3).map(p => p[0]), s0 = Math.min(...bot), s1 = Math.max(...bot);
       const nx = -uy, ny = ux, hits = new Set();
       for (const side of [-1, 1]) for (const d of [w.t / 2 + 0.25, w.t / 2 + 0.7]) for (const f of [0.2, 0.5, 0.8]) {
