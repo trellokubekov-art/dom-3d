@@ -1437,7 +1437,8 @@ function encausticMat(wM, hM, px = 512) {   // узорная плитка во 
   return std({ map: t, roughness: 0.35 });
 }
 function buildStair(s, grp) {
-  const r = (s.z1 - s.z0) / s.risers, perFlight = s.risers / 2 - 1;
+  // split — сколько подъёмов до площадки (по умолчанию половина): больше — площадка выше, под ней выше проход
+  const r = (s.z1 - s.z0) / s.risers, n1 = s.split ?? s.risers / 2, perFlight = n1 - 1, p2 = s.risers - n1 - 1, landT = s.landT ?? 0.2;
   const run = perFlight * s.tread;
   let xa = [s.x[0], s.x[0] + s.flight], xb = [s.x[1] - s.flight, s.x[1]];
   if (s.mirror) [xa, xb] = [xb, xa];   // mirror: 1-й марш справа (у x[1]), 2-й — слева
@@ -1455,13 +1456,13 @@ function buildStair(s, grp) {
     nose(xa, y1, z);
   }
   // площадка с большим «ковром» из плитки
-  const zl = s.z0 + (perFlight + 1) * r;
-  box([s.x[0], s.x[1]], [s.y[0], land], [zl - 0.2, zl], 'stair', grp);
+  const zl = s.z0 + n1 * r;
+  box([s.x[0], s.x[1]], [s.y[0], land], [zl - landT, zl], 'stair', grp);
   tile((s.x[0] + s.x[1]) / 2, (s.y[0] + land) / 2, zl, s.x[1] - s.x[0] - 0.1, land - s.y[0] - 0.1, landKey);
   nose(xa, land, zl);
   // 2-й марш: ступени-блоки с подступёнками
-  for (let j = 0; j < perFlight; j++) {
-    const top = s.z0 + (perFlight + 2 + j) * r, y0 = land + j * s.tread, y1 = land + (j + 1) * s.tread;
+  for (let j = 0; j < p2; j++) {
+    const top = s.z0 + (n1 + 1 + j) * r, y0 = land + j * s.tread, y1 = land + (j + 1) * s.tread;
     box(xb, [y0, y1], [top - r - 0.06, top], 'stair', grp);
     tile((xb[0] + xb[1]) / 2, (y0 + y1) / 2 + 0.01, top, fw - 0.08, s.tread - 0.05, 'treadTile');
     nose(xb, y0, top);
@@ -1476,7 +1477,7 @@ function buildStair(s, grp) {
   glassRun(xa[0] + 0.02, s.y[1], s.z0, land, zl, 0.95);                                  // вдоль 1-го марша со стороны холла
   glassRun(xa[0] + 0.02, land, zl, s.y[0] + 0.05, zl, 0.95);                             // вдоль площадки
   glassRun((xa[1] + xb[0]) / 2, s.y[1] - s.tread, s.z0 + r, land, zl, 0.95);            // между маршами — внизу
-  glassRun((xa[1] + xb[0]) / 2, land, zl, s.y[1] - s.tread, s.z1 - r, 0.95);            // между маршами — вверху
+  glassRun((xa[1] + xb[0]) / 2, land, zl, land + p2 * s.tread, s.z1 - r, 0.95);        // между маршами — вверху
   box([(xa[1] + xb[0]) / 2 - 0.025, (xa[1] + xb[0]) / 2 + 0.025], [land - 0.025, land + 0.025], [s.z0, s.z1 + 1.0], 'black', grp);   // чёрная стойка
 }
 buildStair(D.stair, 'gf');
@@ -3946,11 +3947,9 @@ if (D.stairBs) OBST.bs.push({ x0: D.stairBs.x[0], x1: D.stairBs.x[1], y0: D.stai
 {
   const out = new THREE.CircleGeometry(260, 48); out.rotateX(-Math.PI / 2); out.translate(CENTER.x, TERR - 0.02, CENTER.z);
   put(out, 'grassOut', 'site');
-  // гравийные полосы вдоль стен со стороны сада
-  box([3.5, 12.5], [1.9, 2.5], [TERR, TERR + 0.02], 'gravel', 'site');
-  box([-2.1, -1.5], [5.0, 14.0], [TERR, TERR + 0.02], 'gravel', 'site');
-  for (const [x, y, r] of [[13.6, 17.2, 0.5], [12.6, 15.0, 0.6], [2.5, 15.0, 0.7], [5.0, 15.2, 0.6], [29.6, 17.0, 0.7], [-1.2, 3.0, 0.8]])
-    put(Sp(r, x, TERR + r * 0.8, y), 'leaf', 'site');
+  // гравийные полосы и кусты-шары у дома — из dom-data.js (siteGravel: {x, y}, siteBushes: [x, y, радиус])
+  for (const g of D.siteGravel || []) box(g.x, g.y, [TERR, TERR + 0.02], 'gravel', 'site');
+  for (const [x, y, r] of D.siteBushes || []) put(Sp(r, x, TERR + r * 0.8, y), 'leaf', 'site');
 }
 // ---------- граница участка: газон по контуру, межевая лента, длины сторон, площадь в сотках ----------
 // Контур — многоугольник D.site.poly; в редакторе его углы можно тянуть. Правка хранится в браузере ('dom3d-site-v1')
@@ -4279,7 +4278,8 @@ function goWalk(lvl, x, y, yaw) { placePlayer(lvl, x, y, yaw); setView('walk-' +
 // ---------- лестница: E — на другой этаж ----------
 const ST = D.stair;
 const SX1 = ST.mirror ? ST.x[1] - ST.flight / 2 : ST.x[0] + ST.flight / 2, SX2 = ST.mirror ? ST.x[0] + ST.flight / 2 : ST.x[1] - ST.flight / 2;   // низ 1-го и верх 2-го марша
-const STAIR = { bs: { x: SX1, y: ST.y[1] + 0.6 }, gf: { x: SX1, y: ST.y[1] + 0.6 }, attic: { x: SX2, y: ST.y[1] + 0.5 } };
+const ST_N1 = ST.split ?? ST.risers / 2, ST_TOP = ST.y[1] - (ST_N1 - 1) * ST.tread + (ST.risers - ST_N1 - 1) * ST.tread;   // где кончается верхний марш
+const STAIR = { bs: { x: SX1, y: ST.y[1] + 0.6 }, gf: { x: SX1, y: ST.y[1] + 0.6 }, attic: { x: SX2, y: ST_TOP + 0.5 } };
 // куда ведёт лестница: E — наверх, Q — вниз (в цоколь)
 const STAIR_GO = { bs: { KeyE: 'gf' }, gf: D.levels.bs ? { KeyE: 'attic', KeyQ: 'bs' } : { KeyE: 'attic' }, attic: { KeyE: 'gf' } };
 const nearStair = () => Math.hypot(player.x - STAIR[player.lvl].x, player.y - STAIR[player.lvl].y) < 1.6;
