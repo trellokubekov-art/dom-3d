@@ -276,6 +276,12 @@ MAT.glass.roughness = 0.02; MAT.glass.metalness = 0;   // стекло отра�
 MAT.mat = std({ color: 0x2f6b55, roughness: 0.7 });
 MAT.brass = std({ color: 0xb08d57, roughness: 0.3, metalness: 0.9 });
 MAT.walnutDark = std({ map: TEX.oak, color: 0x5b3d2a, roughness: 0.5 });   // тёмный орех для портала
+// фасады дома 2 (Вилла Флорида): белые панели со швами, графитовая штукатурка, дубовые рамы окон (meta.frameMat: 'oakFrame')
+TEX.panelWhite = tex(256, 2.4, (g, p) => { speckle(g, p, '#f3f3f0', 0.04, 2500); g.fillStyle = '#cdcdc8'; g.fillRect(0, 0, 3, p); g.fillRect(p / 2, 0, 3, p); g.fillRect(0, p / 2, p, 3); });
+MAT.whitePanel = std({ map: TEX.panelWhite, roughness: 0.6 });
+MAT.graphite = std({ map: TEX.plaster, color: 0x4a4d51, roughness: 0.85 });
+MAT.oakFrame = std({ map: TEX.oak, color: 0xd2a874, roughness: 0.55 });
+const FRAME = D.meta.frameMat || 'frame';   // материал оконных рам и дверных коробок
 // ---------- цоколь: кинозал и кладовая ----------
 MAT.walnutPanel = std({ roughness: 0.6, map: tex(512, 2.4, (g, p) => {   // ореховые стеновые панели 1,2 × 1,5 м с узким швом
   g.fillStyle = '#5a3c29'; g.fillRect(0, 0, p, p);
@@ -1035,7 +1041,7 @@ function spanAt(pts, val, axis) {   // пересечение многоугол
   }
   return hits.length >= 2 ? [Math.min(...hits), Math.max(...hits)] : null;
 }
-function bar(p, q, M, grp, depth = 0.1, size = 0.07, mat = 'frame', zoff = 0) {   // планка рамы от p до q в плоскости стены
+function bar(p, q, M, grp, depth = 0.1, size = 0.07, mat = FRAME, zoff = 0) {   // планка рамы от p до q в плоскости стены
   const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
   const g = new THREE.BoxGeometry(len + size, size, depth);
   g.rotateZ(Math.atan2(q[1] - p[1], q[0] - p[0]));
@@ -1278,10 +1284,10 @@ function buildWall(w) {
       const width = s1 - s0, h = op.pts.reduce((a, p) => Math.max(a, p[1]), 0), dir = op.o.dir || -1, fz = op.o.z ?? 0.1, fr = 0.05;
       const parts = [[new THREE.PlaneGeometry(width - 2 * fr, h - 2 * fr).translate(width / 2, h / 2, 0), 'glass']];
       for (const [x, y, bw, bh] of [[width / 2, fr / 2, width, fr], [width / 2, h - fr / 2, width, fr], [fr / 2, h / 2, fr, h], [width - fr / 2, h / 2, fr, h]])
-        parts.push([new THREE.BoxGeometry(bw, bh, 0.05).translate(x, y, 0), 'frame']);
-      parts.push([new THREE.BoxGeometry(0.025, 0.4, 0.03).translate(dir < 0 ? width - 0.09 : 0.09, 1.05, 0.04), 'frame'],
-                 [new THREE.BoxGeometry(0.025, 0.4, 0.03).translate(dir < 0 ? width - 0.09 : 0.09, 1.05, -0.04), 'frame']);
-      for (const zz of [fz - 0.04, fz + 0.04]) put(new THREE.BoxGeometry(width * 2, 0.02, 0.012).translate(s0 + (dir < 0 ? 0 : width), 0.005, zz).applyMatrix4(M), 'frame', grp);   // рельс
+        parts.push([new THREE.BoxGeometry(bw, bh, 0.05).translate(x, y, 0), FRAME]);
+      parts.push([new THREE.BoxGeometry(0.025, 0.4, 0.03).translate(dir < 0 ? width - 0.09 : 0.09, 1.05, 0.04), FRAME],
+                 [new THREE.BoxGeometry(0.025, 0.4, 0.03).translate(dir < 0 ? width - 0.09 : 0.09, 1.05, -0.04), FRAME]);
+      for (const zz of [fz - 0.04, fz + 0.04]) put(new THREE.BoxGeometry(width * 2, 0.02, 0.012).translate(s0 + (dir < 0 ? 0 : width), 0.005, zz).applyMatrix4(M), FRAME, grp);   // рельс
       makeDoor({ grp, M, w, s0, s1, leaves: [{ pivot: [s0, 0.005, fz], parts, slide: [dir * (width - 0.06), 0], closed: 0, open: 0 }],
                  name: op.o.name || 'Раздвижная дверь' });
       continue;
@@ -1300,7 +1306,7 @@ function buildWall(w) {
     const sh = new THREE.Shape(op.pts.map(p => new THREE.Vector2(...p)));
     if (k === 'gate') {
       const g = new THREE.ExtrudeGeometry(sh, { depth: 0.06, bevelEnabled: false }); g.translate(0, 0, -0.03); g.applyMatrix4(M);
-      put(g, 'wood', grp); continue;
+      put(g, op.o.m || 'wood', grp); continue;   // ворота: m — материал полотна (например 'lacquer' — белые секционные)
     }
     const g = new THREE.ShapeGeometry(sh); g.applyMatrix4(M);
     put(g, 'glass', grp);
