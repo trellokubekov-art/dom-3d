@@ -36,6 +36,8 @@
   .label { background: rgba(255,255,255,.85); padding: 2px 6px; border-radius: 4px; font-size: 12px; color: #222; white-space: nowrap; pointer-events: none; text-align: center; }
   .label b { display: block; font-size: 11px; color: #666; font-weight: normal; }
   .compass { background: #c0392b; color: #fff; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 13px; }
+.siteLen { background: rgba(255,255,255,.9); color: #7a3a10; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: bold; border: 1px solid #e07a2a; pointer-events: none; }
+.siteArea { background: #2c7a3a; color: #fff; padding: 4px 10px; border-radius: 5px; font-size: 13px; font-weight: bold; text-align: center; pointer-events: none; line-height: 1.35; }
 </style>
 </head>
 <body>
@@ -45,7 +47,7 @@
   <div class="row"><button data-view="orbit">🔄 Облёт снаружи</button></div>
   <div class="row"><button data-view="walk-bs">🚶 Цоколь</button><button data-view="walk-gf">🚶 1 этаж</button><button data-view="walk-attic">🚶 Мансарда</button></div>
   <div class="row"><button data-view="doll-bs">🏠 Цоколь</button><button data-view="doll-gf">🏠 1 этаж</button><button data-view="doll-attic">🏠 Мансарда</button></div>
-  <div class="row"><button id="bEdit">🪑 Двигать мебель</button></div>
+  <div class="row"><button id="bEdit">🪑 Двигать мебель и участок</button></div>
   <h2>Время суток</h2>
   <div class="row"><button data-time="6">🌅 6:00</button><button data-time="9">9:00</button><button data-time="12" class="on">☀ 12:00</button></div>
   <div class="row"><button data-time="18">🌇 18:00</button><button data-time="22">🌙 22:00</button><button data-time="2">2:00</button></div>
@@ -67,6 +69,9 @@
   <div class="row"><button data-rot="-90">⟲ 90°</button><button data-rot="-15">⟲ 15°</button><button data-rot="15">⟳ 15°</button><button data-rot="90">⟳ 90°</button></div>
   <div class="row"><button id="eReset">↺ Вернуть на место</button><button id="eDone">✔ Готово</button></div>
   <div class="row"><button id="eSave">💾 Сохранить в файл</button><button id="eResetAll">Сбросить всё</button></div>
+  <div id="eSite"></div>
+  <div class="row"><button id="eSiteReset">↺ Участок как в проекте</button></div>
+  <div class="ehint">Участок: тяни оранжевый угол; белая точка на стороне — тянуть, чтобы добавить угол; щёлкни угол и Delete — убрать его. Шаг 10 см (с Alt — свободно).</div>
   <div class="ehint">Тяни предмет мышью — шаг 5 см (с Alt — свободно). Q / E — поворот на 15°, с Shift — на 90°. Стрелки — сдвиг на 5 см. Esc — снять выбор. Всё запоминается само.</div>
 </div>
 <div id="map" class="panel"><canvas id="mapc" width="250" height="262"></canvas></div>
@@ -104,8 +109,22 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const D = window.HOUSE;
 if (!D) { showMsg('Не найден файл dom-data.js — он должен лежать рядом с dom-3d.html.'); throw new Error('no data'); }
-const AT = D.levels.attic.z, GF_H = D.levels.gf.h, TERR = D.meta.terrain;
-const CENTER = new THREE.Vector3(14.5, 0, 15);
+// Необязательные разделы: чего нет в dom-data.js — считаем пустым, чтобы один и тот же движок годился для любого дома.
+for (const k of ['roofs', 'walls', 'slabs', 'floors', 'columns', 'blocks', 'pv', 'frames', 'drapes', 'rooms', 'furniture', 'lights']) D[k] ??= [];
+D.meta ??= {}; D.finish ??= {}; D.basement ??= { area: [], ceil: [] };
+// Камеры, старт прогулки, солнце, мини-карта, сетка проверки — раздел view в dom-data.js; чего нет — значения первого дома.
+const V = Object.assign({
+  center: [14.5, 15],                                    // «середина» дома (вокруг неё растёт лес)
+  orbit: { cam: [48, 62, 32], target: [14.5, 15, 2] },   // облёт: камера и цель [x, y, высота]
+  doll: { cam: [22, 44, 30], target: [14.5, 14, 0] },    // «Домик» (высота — от пола показанного уровня)
+  dollBs: { cam: [16, 25, 19], target: [14, 9, 0] },
+  start: { bs: [15.6, 12.4, 270], gf: [14.6, 15.4, 180], attic: [14.8, 11.2, 0] },   // старт прогулки на уровне: [x, y, yaw]
+  sun: { center: [14.5, -4], range: 48 },                // куда направлено солнце (центр теней) и полуширина карты теней, м
+  map: { x0: -3.5, y0: -4.5, k: 7.6 },                   // мини-карта: левый верхний угол плана и пикс/м
+  grid: { x0: -3, y0: -4, w: 36, h: 39 },                // сетка проверки проходов (?check=1), м
+}, D.view || {});
+const AT = D.levels.attic.z, GF_H = D.levels.gf.h, TERR = D.meta.terrain ?? -0.3;
+const CENTER = new THREE.Vector3(V.center[0], 0, V.center[1]);
 
 // =====================================================================
 //  Рендер, камера, сцена
@@ -125,9 +144,9 @@ document.body.appendChild(labelRenderer.domElement);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 800);
-camera.position.set(48, 32, 62);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(14.5, 2, 15);
+const setCam = (c, t, h = 0) => { camera.position.set(c[0], c[2] + h, c[1]); controls.target.set(t[0], t[2] + h, t[1]); };   // [x, y, высота] плана
+setCam(V.orbit.cam, V.orbit.target);
 controls.maxPolarAngle = Math.PI * 0.495;
 controls.update();
 
@@ -866,7 +885,7 @@ ph(MAT.smokedOak, 'oak_veneer_01', 1.2, { tint: 0x8d877e });
 const groups = {};
 for (const k of ['bs', 'gf', 'attic', 'ceil', 'roof', 'site', 'labels', 'lights']) { groups[k] = new THREE.Group(); scene.add(groups[k]); }
 // уровни: bs — цоколь, gf — 1 этаж, attic — мансарда. LZ — отметка пола уровня.
-const LVLS = ['bs', 'gf', 'attic'], LZ = { bs: D.levels.bs.z, gf: 0, attic: D.levels.attic.z };
+const LVLS = ['bs', 'gf', 'attic'].filter(l => D.levels[l]), LZ = { bs: D.levels.bs?.z, gf: 0, attic: D.levels.attic.z };   // уровни, которых нет в данных, пропускаются
 const buckets = new Map();
 function worldUV(g) {   // UV в метрах по направлению нормали
   const p = g.attributes.position, n = g.attributes.normal, uv = new Float32Array(p.count * 2);
@@ -3630,6 +3649,142 @@ const BUILD = {
   },
 };
 const ROT = { '+y': 0, '-y': Math.PI, '+x': Math.PI / 2, '-x': -Math.PI / 2 };
+
+// =====================================================================
+//  Теннисный корт с садом вокруг — по референсу заказчика. Размеры по правилам ITF (обоснование — output\tennis-kort.md):
+//  корт 23,77 × 10,97 (одиночный 8,23), за задней линией 6,40, сбоку 3,66 → покрытие 36,57 × 18,29 м.
+//  Вокруг: стриженая живая изгородь 3,6 м с трёх сторон, низкий бордюр из самшита, викторианские фонари на столбах,
+//  со стороны дома — кремовая стенка-цветник с самшитовыми шарами и дорожка из брусчатки.
+//  Местные оси предмета: X — поперёк корта, Z — вдоль (на север при повороте 0), Y — вверх от уровня земли.
+// =====================================================================
+const leafTex = (px, m, base, cols, n, r0, r1) => tex(px, m, (g, p) => {   // листва: много мелких «листиков», бесшовно
+  g.fillStyle = base; g.fillRect(0, 0, p, p);
+  for (let i = 0; i < n; i++) {
+    const x = rnd() * p, y = rnd() * p, r = r0 + rnd() * (r1 - r0), a = rnd() * 3.14;
+    g.fillStyle = cols[Math.floor(rnd() * cols.length)];
+    for (const [dx, dy] of [[0, 0], [p, 0], [-p, 0], [0, p], [0, -p]]) { g.beginPath(); g.ellipse(x + dx, y + dy, r, r * 0.55, a, 0, 6.29); g.fill(); }
+  }
+});
+TEX.hedge = leafTex(512, 1.2, '#16220f', ['#1f3119', '#283d20', '#304a26', '#1a2a15', '#3a5730', '#45663a'], 9000, 3, 9);
+TEX.boxwood = leafTex(256, 0.5, '#1d2e17', ['#2b4423', '#35532b', '#426534', '#26391f', '#4d743c'], 5000, 2, 5);
+TEX.courtIn = tex(256, 2, (g, p) => speckle(g, p, '#4d6e60', 0.07, 9000, 2));
+TEX.courtOut = tex(256, 2, (g, p) => speckle(g, p, '#5b5d46', 0.07, 9000, 2));
+TEX.creamStone = tex(256, 1.5, (g, p) => speckle(g, p, '#d9d0bd', 0.07, 7000, 2));
+TEX.cobble = tex(512, 1.56, (g, p) => {   // брусчатка: камни ~13 см рядами вразбежку, серые оттенки, тёмные швы
+  g.fillStyle = '#5d5b57'; g.fillRect(0, 0, p, p);
+  const n = 12, s = p / n;
+  for (let r = 0; r < n; r++) for (let c = 0; c <= n; c++) {
+    const x = c * s + (r % 2) * s / 2 + (rnd() - 0.5) * 3, y = r * s + (rnd() - 0.5) * 2, v = 125 + rnd() * 60 | 0, w = s - 4 - rnd() * 3;
+    g.fillStyle = `rgb(${v},${v - 1},${v - 5})`;
+    for (const dx of [0, -p]) { g.beginPath(); g.roundRect(x + dx + 2, y + 2, w, s - 4, 6); g.fill(); }
+  }
+  for (let i = 0; i < 9000; i++) { const v = (rnd() - 0.5) * 0.12; g.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`; g.fillRect(rnd() * p, rnd() * p, 2, 2); }
+});
+TEX.net = tex(128, 0.18, (g, p) => {   // сетка с ячейкой 4,5 см (прозрачный холст + тёмные нити)
+  g.clearRect(0, 0, p, p); g.strokeStyle = '#141615'; g.lineWidth = 5;
+  for (let i = 0; i < 4; i++) { const k = i * p / 4 + 1.5; g.beginPath(); g.moveTo(k, 0); g.lineTo(k, p); g.moveTo(0, k); g.lineTo(p, k); g.stroke(); }
+});
+Object.assign(MAT, {
+  courtIn: std({ map: TEX.courtIn, roughness: 0.9 }), courtOut: std({ map: TEX.courtOut, roughness: 0.9 }), courtLine: std({ color: 0xf2f2ee, roughness: 0.8 }),
+  hedge: std({ map: TEX.hedge, bumpMap: TEX.hedge, bumpScale: 2.5, roughness: 0.95 }),
+  boxwood: std({ map: TEX.boxwood, bumpMap: TEX.boxwood, bumpScale: 2, roughness: 0.9 }),
+  creamStone: std({ map: TEX.creamStone, roughness: 0.8 }), cobble: std({ map: TEX.cobble, bumpMap: TEX.cobble, bumpScale: 1.5, roughness: 0.9 }),
+  tennisNet: new THREE.MeshStandardMaterial({ map: TEX.net, transparent: true, alphaTest: 0.35, side: THREE.DoubleSide, roughness: 0.8 }),
+  lanternBlack: std({ color: 0x1c1d1e, roughness: 0.45, metalness: 0.5 }), lanternGlow: glow(0xffdcaa, 0xffa648),
+});
+const CT = { L: 23.77, W: 10.97, WS: 8.23, SV: 6.40, BACK: 6.40, SIDE: 3.66, NET_C: 0.914, NET_P: 1.07, POST: 0.914, HT: 3.6, HD: 0.9, PD: 1.4, PH: 0.8, GAP: 1.8, WALK: 2.0, LAMP: 3.4 };
+CT.SX = CT.W + 2 * CT.SIDE; CT.SZ = CT.L + 2 * CT.BACK;   // покрытие 18,29 × 36,57 м
+CT.posts = [-1, 1].flatMap(s => [-10, 0, 10].map(z => [s * (CT.SX / 2 - 0.95), z]));   // фонари на столбах у боковых изгородей
+// «стриженый» куст: сфера с неровной поверхностью (смещение зависит от точки, поэтому шов сферы не расходится)
+const lumpy = (r, sy, x, y, z, k = 0.07) => {
+  const g = new THREE.SphereGeometry(r, 18, 12), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const vx = p.getX(i), vy = p.getY(i), vz = p.getZ(i), f = 1 + k * Math.sin(vx / r * 4.5 + vy / r * 2) * Math.sin(vz / r * 4 - vy / r * 2.5);
+    p.setXYZ(i, vx * f, vy * f * sy, vz * f);
+  }
+  const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 6.28 * r, uv.getY(i) * 3.14 * r * sy);   // своя развёртка в метрах — без «квадратов»
+  g.computeVertexNormals(); g.userData.ownUV = true; return g.translate(x, y, z);
+};
+function lampPost(r, x, z, y0, h = CT.LAMP) {   // викторианский фонарь: цоколь, тонкий столб с кольцами, шестигранный фонарь с куполом
+  const B = 'lanternBlack', ly = y0 + h - 0.75;
+  r.push([Cy(0.2, 0.1, x, y0, z, 0.23, 8), B], [Cy(0.1, 0.55, x, y0 + 0.1, z, 0.16, 8), B], [Cy(0.12, 0.05, x, y0 + 0.65, z, 0.12, 12), B],
+    [Cy(0.045, h - 1.45, x, y0 + 0.7, z, 0.06, 12), B], [Cy(0.075, 0.06, x, y0 + 1.6, z, 0.075, 12), B], [Cy(0.1, 0.1, x, ly - 0.1, z, 0.05, 12), B],
+    [Cy(0.17, 0.12, x, ly, z, 0.05, 6), B], [Cy(0.2, 0.42, x, ly + 0.12, z, 0.15, 6), 'lanternGlow'],
+    [Cy(0.03, 0.22, x, ly + 0.54, z, 0.26, 6), B], [Cy(0.035, 0.08, x, ly + 0.76, z), B], [Sp(0.04, x, ly + 0.88, z), B]);
+  for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3; r.push([Bx(0.022, 0.42, 0.022, x + Math.cos(a) * 0.175, ly + 0.12, z + Math.sin(a) * 0.175), B]); }
+}
+function wallLantern(r, x, z, y0, nx, nz) {   // маленький фонарь на кронштейне у изгороди; (nx, nz) — от изгороди к корту
+  const B = 'lanternBlack', lx = x + nx * 0.24, lz = z + nz * 0.24, y = y0 + 1.75;
+  r.push([Bx(0.12 + Math.abs(nz) * 0.1, 0.3, 0.12 + Math.abs(nx) * 0.1, x, y - 0.05, z), B],
+    [Bx(0.03 + Math.abs(nx) * 0.22, 0.03, 0.03 + Math.abs(nz) * 0.22, x + nx * 0.12, y + 0.38, z + nz * 0.12), B],
+    [Cy(0.08, 0.06, lx, y, lz, 0.03, 6), B], [Cy(0.1, 0.22, lx, y + 0.06, lz, 0.075, 6), 'lanternGlow'], [Cy(0.02, 0.1, lx, y + 0.28, lz, 0.13, 6), B]);
+}
+// одинаковые материалы склеиваются заранее — корт двигается редактором одним куском, а не сотней деталей.
+// Развёртка текстур считается здесь же (в местных координатах), у кустов-шаров — своя.
+const mergeByMat = parts => {
+  const by = {};
+  for (const [g, mat] of parts) {
+    const own = g.userData.ownUV, q = g.index ? g.toNonIndexed() : g;
+    for (const k of Object.keys(q.attributes)) if (!['position', 'normal', 'uv'].includes(k)) q.deleteAttribute(k);
+    if (!q.attributes.normal) q.computeVertexNormals();
+    if (!own) worldUV(q);
+    (by[mat] ??= []).push(q);
+  }
+  return Object.entries(by).map(([mat, gs]) => [mergeGeometries(gs, false), mat, true]);
+};
+BUILD.tenniscourt = o => {
+  const { L, W, WS, SV, SX, SZ, HT, HD, PD, PH, GAP, WALK } = CT, y0 = TERR, top = y0 + 0.04, r = [], path = o.path ?? 2;
+  const w2 = W / 2, s2 = WS / 2, l2 = L / 2, t = 0.05, zEnd = SZ / 2 + PD;
+  // покрытие (акрил): игровое поле зелёное, зона за линиями — оливковая, как на фото
+  r.push([Bx(SX, 0.04, SZ, 0, y0, 0), 'courtOut'], [Bx(W, 0.004, L, 0, top, 0), 'courtIn']);
+  // разметка: размеры — до внешнего края линий; задние линии 10 см, остальные 5 см
+  const ln = (x0, x1, z0, z1) => r.push([Bx(x1 - x0, 0.003, z1 - z0, (x0 + x1) / 2, top + 0.004, (z0 + z1) / 2), 'courtLine']);
+  ln(-w2, -w2 + t, -l2, l2); ln(w2 - t, w2, -l2, l2);            // боковые парной игры
+  ln(-s2, -s2 + t, -l2, l2); ln(s2 - t, s2, -l2, l2);            // боковые одиночной игры
+  ln(-w2, w2, -l2, -l2 + 0.1); ln(-w2, w2, l2 - 0.1, l2);        // задние
+  ln(-s2, s2, -SV, -SV + t); ln(-s2, s2, SV - t, SV);            // линии подачи — 6,40 от сетки
+  ln(-t / 2, t / 2, -SV + t, SV - t);                            // средняя линия подачи
+  ln(-t / 2, t / 2, -l2 + 0.1, -l2 + 0.2); ln(-t / 2, t / 2, l2 - 0.2, l2 - 0.1);   // центральные метки 10 см
+  // сетка: стойки в 0,914 м за боковыми линиями, высота 1,07 у стоек и 0,914 в центре; белая лента по верху и центральный ремень
+  const px = w2 + CT.POST, N = 24, hAt = x => CT.NET_C + (CT.NET_P - CT.NET_C) * Math.pow(Math.abs(x) / px, 1.6), net = [];
+  for (let i = 0; i < N; i++) {
+    const xa = -px + 2 * px * i / N, xb = xa + 2 * px / N, ya = top + hAt(xa) - 0.03, yb = top + hAt(xb) - 0.03, b = top + 0.03;
+    net.push(xa, b, 0, xb, b, 0, xb, yb, 0, xa, b, 0, xb, yb, 0, xa, ya, 0);
+    r.push([new THREE.BoxGeometry(Math.hypot(xb - xa, yb - ya), 0.06, 0.02).rotateZ(Math.atan2(yb - ya, xb - xa)).translate((xa + xb) / 2, (ya + yb) / 2, 0), 'courtLine']);
+  }
+  const ng = new THREE.BufferGeometry(); ng.setAttribute('position', new THREE.Float32BufferAttribute(net, 3)); ng.computeVertexNormals();
+  r.push([ng, 'tennisNet'], [Bx(0.05, CT.NET_C, 0.025, 0, top, 0), 'courtLine'], [Bx(0.08, 0.02, 0.06, 0, top, 0), 'matBlack']);
+  for (const s of [-1, 1]) r.push([Cy(0.04, CT.NET_P + 0.03, s * px, top, 0), 'matBlack'], [Bx(0.06, 0.08, 0.05, s * px, top + 0.3, 0.05), 'matBlack']);
+  // высокая стриженая изгородь с трёх сторон (дальний торец и обе длинные стороны)
+  r.push([RB(SX + 2 * HD, HT, HD, 0.2, 0, y0, -SZ / 2 - HD / 2), 'hedge']);
+  for (const s of [-1, 1]) r.push([RB(HD, HT, SZ + PD, 0.2, s * (SX / 2 + HD / 2), y0, PD / 2), 'hedge']);
+  // у подножия — низкий бордюр из самшита (0,55 м) кусками с проходами; на изгороди — маленькие фонари
+  const low = (x0, x1, z0, z1) => r.push([RB(x1 - x0, 0.55, z1 - z0, 0.14, (x0 + x1) / 2, top, (z0 + z1) / 2), 'boxwood']);
+  const runs = (a, b, n, g, f) => { const len = (b - a - g * (n - 1)) / n; for (let i = 0; i < n; i++) f(a + i * (len + g), a + i * (len + g) + len); };
+  runs(-SX / 2, SX / 2, 3, 1.0, (a, b) => low(a, b, -SZ / 2, -SZ / 2 + 0.5));
+  for (const s of [-1, 1]) runs(-SZ / 2 + 0.5, SZ / 2, 4, 1.0, (a, b) => low(s > 0 ? SX / 2 - 0.5 : -SX / 2, s > 0 ? SX / 2 : -SX / 2 + 0.5, a, b));
+  for (const x of [-6, -2, 2, 6]) wallLantern(r, x, -SZ / 2, top, 0, 1);
+  for (const s of [-1, 1]) for (const z of [-15, -5, 5, 15]) wallLantern(r, s * SX / 2, z, top, -s, 0);
+  for (const [x, z] of CT.posts) lampPost(r, x, z, top);
+  // со стороны дома: кремовая стенка-цветник с самшитовыми шарами, проход посередине
+  const pz = SZ / 2 + PD / 2, pe = SX / 2 + HD;
+  for (const s of [-1, 1]) {
+    const a = GAP / 2, len = pe - a, cx = s * (a + pe) / 2;
+    r.push([Bx(len, PH - 0.06, PD, cx, y0, pz), 'creamStone'], [Bx(len - 0.24, 0.012, PD - 0.24, cx, y0 + PH - 0.06, pz), 'soil'],
+      [Bx(len + 0.04, 0.07, 0.15, cx, y0 + PH - 0.06, SZ / 2 + 0.06), 'creamStone'], [Bx(len + 0.04, 0.07, 0.15, cx, y0 + PH - 0.06, zEnd - 0.06), 'creamStone'],
+      [Bx(0.16, 0.07, PD + 0.04, s * (a + 0.07), y0 + PH - 0.06, pz), 'creamStone']);
+    const n = Math.floor((len - 0.9) / 0.92);
+    for (let i = 0; i < n; i++) { const rr = 0.44 + rnd() * 0.08; r.push([lumpy(rr, 0.88, s * (a + 0.75 + i * 0.92), y0 + PH - 0.05 + rr * 0.8, pz + (rnd() - 0.5) * 0.12), 'boxwood']); }
+    lampPost(r, s * (a + 0.3), pz, y0 + PH - 0.05, 2.9);
+    for (const x of [2.5, 6.5]) r.push([Sp(0.07, s * (a + x), y0 + 0.07, zEnd + 0.12), 'lanternGlow']);   // подсветка стенки снизу
+  }
+  // брусчатка: проход в стенке, дорожка вдоль неё и тропинка к дому
+  r.push([Bx(GAP, 0.04, PD, 0, y0, pz), 'cobble'], [Bx(SX + 2 * HD, 0.035, WALK, 0, y0, zEnd + WALK / 2), 'cobble'], [Bx(1.8, 0.035, path, 0, y0, zEnd + WALK + path / 2), 'cobble']);
+  // колонновидные кипарисы по углам
+  for (const s of [-1, 1]) for (const [z, h] of [[-SZ / 2 - HD - 0.2, 5.2], [zEnd + 0.1, 4.4]])
+    r.push([lumpy(0.6, h / 1.2, s * (SX / 2 + HD + 0.65), y0 + h / 2, z, 0.05), 'hedge']);
+  return mergeByMat(r);
+};
 // Мебель. Каждый предмет собирается один раз «у себя» (в начале координат); где он стоит и как повёрнут —
 // из dom-data.js или из правок редактора (кнопка «Двигать мебель»). Правки хранятся в браузере по id предмета
 // и применяются, только пока предмет в dom-data.js не менялся (иначе главнее dom-data.js).
@@ -3638,8 +3793,9 @@ groups.furnAttic = new THREE.Group(); groups.attic.add(groups.furnAttic);
 groups.furnBs = new THREE.Group(); groups.bs.add(groups.furnBs);
 groups.furnCeil = new THREE.Group(); groups.ceil.add(groups.furnCeil);   // потолочные предметы прячутся вместе с потолками в «Домике»
 const FURN_GRP = { bs: 'furnBs', gf: 'furnGf', attic: 'furnAttic' }, CEIL_TYPES = ['gridceiling', 'tracklight', 'conePendant', 'downlight', 'ceilbeams', 'cylspot', 'ringPendant', 'collarBeams', 'woodPendant'];
-const NO_OBST = ['rug', 'arcLamp', 'slatWall', 'landscapeArt', 'woodPendant', 'collarBeams', 'ringPendant', 'ledMirror', 'breezewall', 'tileband', 'reliefpanel', 'dryrack', 'cylspot', 'domePendant', 'ledshelves', 'hangrail', 'ceilbeams', 'pendants', 'pendLine', 'uppers', 'curtain', 'art', 'gridceiling', 'sconce', 'tracklight', 'conePendant', 'pinboard', 'floormirror', 'wainscot', 'goldprint', 'paperholder', 'brassmirror', 'downlight', 'wcshelf'];
-const EDIT_LS = 'dom3d-furniture-v1';
+const NO_OBST = ['tenniscourt', 'rug', 'arcLamp', 'slatWall', 'landscapeArt', 'woodPendant', 'collarBeams', 'ringPendant', 'ledMirror', 'breezewall', 'tileband', 'reliefpanel', 'dryrack', 'cylspot', 'domePendant', 'ledshelves', 'hangrail', 'ceilbeams', 'pendants', 'pendLine', 'uppers', 'curtain', 'art', 'gridceiling', 'sconce', 'tracklight', 'conePendant', 'pinboard', 'floormirror', 'wainscot', 'goldprint', 'paperholder', 'brassmirror', 'downlight', 'wcshelf'];
+const LS_PFX = D.meta.id ? 'dom3d-' + D.meta.id : 'dom3d';   // у каждого дома свои правки: все file://-страницы делят одно хранилище
+const EDIT_LS = LS_PFX + '-furniture-v1';
 const norm360 = d => ((Math.round(d) % 360) + 360) % 360;
 const EDITS = (() => { try { return JSON.parse(localStorage.getItem(EDIT_LS) || '{}'); } catch { return {}; } })();
 const FURN = [];
@@ -3662,11 +3818,13 @@ function updateFurnObst() {
 }
 // ---------- светильники мастерской: каждый — отдельный объект со своим светом, включается наведением + щелчок / F ----------
 // Светящиеся части (lamp, led, ledWash) у каждого светильника свои; вечером у включённого горит настоящий источник света.
-const LIGHT_TYPES = ['tracklight', 'conePendant', 'brasslamp', 'pinboard', 'workdesk', 'sewcabinet'], GLOW = ['lamp', 'led', 'ledWash'];
-const LIGHT_NAME = { tracklight: 'Трековый свет', conePendant: 'Лампа над островом', brasslamp: 'Торшер', pinboard: 'Лампа над доской',
+const LIGHT_TYPES = ['tenniscourt', 'tracklight', 'conePendant', 'brasslamp', 'pinboard', 'workdesk', 'sewcabinet'], GLOW = ['lamp', 'led', 'ledWash', 'lanternGlow'];
+const LIGHT_NAME = { tenniscourt: 'Фонари у корта', tracklight: 'Трековый свет', conePendant: 'Лампа над островом', brasslamp: 'Торшер', pinboard: 'Лампа над доской',
   workdesk: 'Подсветка стеллажа', sewcabinet: 'Подсветка шкафа' };
+const FIX_PICK = { tenniscourt: ['lanternGlow', 'lanternBlack'] };   // у корта светильник — только фонари, а не весь корт с изгородью
 // источники света в местных координатах предмета (y — высота от пола): i — сила, d — дальность, spot — направлен вниз
 const LIGHT_DEF = {
+  tenniscourt: () => CT.posts.map(([x, z]) => ({ x, y: TERR + 0.04 + CT.LAMP - 0.5, z, i: 30, d: 16 })),
   tracklight: o => [-1, 1].map(s => ({ x: s * (o.w || 6) / 4, y: GF_H - 0.4, z: 0, i: 9, d: 7 })),
   conePendant: o => Array.from({ length: o.n || 2 }, (_, i) => ({ x: (i - ((o.n || 2) - 1) / 2) * (o.step || 1.2), y: (o.z || 1.95) - 0.05, z: 0, i: 24, d: 7, spot: true })),
   brasslamp: () => [{ x: 0, y: 1.25, z: 0.3, i: 4, d: 4 }],
@@ -3677,14 +3835,14 @@ const LIGHT_DEF = {
 const FIXTURES = {};
 let EVENING = false;
 function fixtureOf(f) {
-  return FIXTURES[f.key] ??= { name: LIGHT_NAME[f.it.t] || 'Светильник', lvl: f.lvl, on: true, isOpen: true, meshes: [], lights: [],
+  return FIXTURES[f.key] ??= { name: LIGHT_NAME[f.it.t] || 'Светильник', lvl: f.lvl, on: true, isOpen: true, meshes: [], lights: [], outdoor: !!FIX_PICK[f.it.t],
     toggle() { this.on = !this.on; applyFixture(this); }, label() { return this.on ? 'выключить' : 'включить'; } };
 }
 function applyFixture(rec) {
   for (const mesh of rec.meshes) {
     const g = mesh.userData.glow, mt = mesh.material;
     if (g === 'ledWash') mesh.visible = rec.on;
-    else if (g) { mt.emissiveIntensity = rec.on ? (g === 'led' ? (EVENING ? 3 : 0.6) : (EVENING ? 2.2 : 0.4)) : 0; mesh.userData.ei = mt.emissiveIntensity; }
+    else if (g) { mt.emissiveIntensity = rec.on ? (g === 'led' ? (EVENING ? 3 : 0.6) : (EVENING ? 2.2 : rec.outdoor ? 0.03 : 0.4)) : 0; mesh.userData.ei = mt.emissiveIntensity; }
   }
   for (const L of rec.lights) { L.visible = EVENING; L.intensity = rec.on ? L.userData.i0 : 0; }   // через силу света — без перестройки шейдеров
 }
@@ -3722,7 +3880,7 @@ function buildFurniture(skip) {
     f.bb = new THREE.Box3();
     for (const [g, mat, keepUV] of f.parts) {
       const c = g.clone().applyMatrix4(m); c.computeBoundingBox(); f.bb.union(c.boundingBox);
-      if (fx) (byMat[mat] ??= []).push(prepPart(c, keepUV));
+      if (fx && (!FIX_PICK[f.it.t] || FIX_PICK[f.it.t].includes(mat))) (byMat[mat] ??= []).push(prepPart(c, keepUV));
       else if (f !== skip) put(c, mat, CEIL_TYPES.includes(f.it.t) ? 'furnCeil' : FURN_GRP[f.lvl], keepUV);
     }
     if (fx) buildFixture(f, fx, byMat, m);
@@ -3740,29 +3898,100 @@ if (D.stairBs) OBST.bs.push({ x0: D.stairBs.x[0], x1: D.stairBs.x[1], y0: D.stai
 //  Участок: газон, деревья вокруг (по картинкам — хвойный лес)
 // =====================================================================
 {
-  const s = D.site;
   const out = new THREE.CircleGeometry(260, 48); out.rotateX(-Math.PI / 2); out.translate(CENTER.x, TERR - 0.02, CENTER.z);
   put(out, 'grassOut', 'site');
-  const plot = new THREE.PlaneGeometry(s.x[1] - s.x[0], s.y[1] - s.y[0]); plot.rotateX(-Math.PI / 2);
-  plot.translate((s.x[0] + s.x[1]) / 2, TERR, (s.y[0] + s.y[1]) / 2);
-  put(plot, 'grass', 'site');
   // гравийные полосы вдоль стен со стороны сада
   box([3.5, 12.5], [1.9, 2.5], [TERR, TERR + 0.02], 'gravel', 'site');
   box([-2.1, -1.5], [5.0, 14.0], [TERR, TERR + 0.02], 'gravel', 'site');
-  for (let i = 0; i < 70; i++) {
-    const a = rnd() * Math.PI * 2, rad = 42 + rnd() * 55, x = CENTER.x + Math.cos(a) * rad, y = CENTER.z + Math.sin(a) * rad;
-    if (y > 30 && Math.abs(x - 20) < 8) continue;   // не загораживать въезд
-    const h = 7 + rnd() * 7;
-    put(Cy(0.25, h * 0.3, x, TERR, y), 'trunk', 'site');
-    put(new THREE.ConeGeometry(h * 0.22, h * 0.8, 9).translate(x, TERR + h * 0.6, y), rnd() > 0.5 ? 'leaf' : 'leafDark', 'site');
-  }
   for (const [x, y, r] of [[13.6, 17.2, 0.5], [12.6, 15.0, 0.6], [2.5, 15.0, 0.7], [5.0, 15.2, 0.6], [29.6, 17.0, 0.7], [-1.2, 3.0, 0.8]])
     put(Sp(r, x, TERR + r * 0.8, y), 'leaf', 'site');
-  for (const [txt, y, bg] of [['С ↑ север (въезд)', s.y[1] + 1.5, '#c0392b'], ['Ю — сад', s.y[0] - 1.5, '#2c7a3a']]) {
+}
+// ---------- граница участка: газон по контуру, межевая лента, длины сторон, площадь в сотках ----------
+// Контур — многоугольник D.site.poly; в редакторе его углы можно тянуть. Правка хранится в браузере ('dom3d-site-v1')
+// и действует, пока контур в dom-data.js не менялся. Лес вокруг пересобирается так, чтобы деревья не росли на участке.
+const SITE_LS = LS_PFX + '-site-v1', SITE_BASE = D.site.poly.map(p => [...p]);
+const SITE = (() => {
+  try { const s = JSON.parse(localStorage.getItem(SITE_LS) || 'null');
+    if (s && JSON.stringify(s.base) === JSON.stringify(SITE_BASE) && s.poly.length >= 3) return s.poly; } catch {}
+  return SITE_BASE.map(p => [...p]);
+})();
+const shoelace = P => P.reduce((a, [x, y], i) => { const [x2, y2] = P[(i + 1) % P.length]; return a + x * y2 - x2 * y; }, 0) / 2;
+function inPoly(P, x, y) {
+  let c = false;
+  for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const [xi, yi] = P[i], [xj, yj] = P[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; }
+  return c;
+}
+function edgeDist(P, x, y) {
+  let d = Infinity;
+  for (let i = 0; i < P.length; i++) {
+    const [ax, ay] = P[i], [bx, by] = P[(i + 1) % P.length], dx = bx - ax, dy = by - ay;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+    d = Math.min(d, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+  }
+  return d;
+}
+const fmtM = v => v.toFixed(1).replace('.', ',');
+function sotki(a) {   // 34,4 сотки · 1 сотка · 3 сотки · 35 соток
+  const s = Math.round(a / 10) / 10, txt = String(s).replace('.', ',');
+  if (s % 1) return txt + ' сотки';
+  const n = s % 100, k = s % 10;
+  return txt + (n > 10 && n < 20 ? ' соток' : k === 1 ? ' сотка' : k >= 2 && k <= 4 ? ' сотки' : ' соток');
+}
+function siteInfo() {
+  const a = Math.abs(shoelace(SITE)), e = SITE.map((p, i) => { const q = SITE[(i + 1) % SITE.length]; return Math.hypot(q[0] - p[0], q[1] - p[1]); });
+  const dims = SITE.length === 4 ? `${fmtM((e[0] + e[2]) / 2)} × ${fmtM((e[1] + e[3]) / 2)} м` : `${SITE.length} углов`;
+  return { a, e, dims, area: `${Math.round(a).toLocaleString('ru')} м²` };
+}
+groups.plot = new THREE.Group(); groups.site.add(groups.plot);
+groups.trees = new THREE.Group(); groups.site.add(groups.trees);
+MAT.siteLine = std({ color: 0xff8a2a, emissive: 0xff6a00, emissiveIntensity: 0.25, roughness: 0.6 });
+const plotLabels = [];
+let plotLabelsOn = true;
+function buildPlot() {
+  for (const o of [...groups.plot.children]) { o.geometry?.dispose(); groups.plot.remove(o); }   // подписи убирают свой HTML сами
+  plotLabels.length = 0;
+  const label = (html, cls, x, y, h) => {
+    const el = document.createElement('div'); el.className = cls; el.innerHTML = html;
+    const o = new CSS2DObject(el); o.position.set(x, TERR + h, y); o.visible = plotLabelsOn; groups.plot.add(o); plotLabels.push(o);
+  };
+  const grass = new THREE.ShapeGeometry(new THREE.Shape(SITE.map(([x, y]) => new THREE.Vector2(x, -y))));
+  grass.rotateX(-Math.PI / 2); grass.translate(0, TERR, 0); worldUV(grass);
+  const gm = new THREE.Mesh(grass, MAT.grass); gm.receiveShadow = true; groups.plot.add(gm);
+  // межевая лента по сторонам и столбики в углах
+  const parts = [], { e, a, dims, area } = siteInfo();
+  SITE.forEach(([ax, ay], i) => {
+    const [bx, by] = SITE[(i + 1) % SITE.length];
+    parts.push(new THREE.BoxGeometry(e[i], 0.03, 0.16).rotateY(Math.atan2(-(by - ay), bx - ax)).translate((ax + bx) / 2, TERR + 0.015, (ay + by) / 2).toNonIndexed(),
+      Cy(0.06, 1.0, ax, TERR, ay).toNonIndexed());
+    let nx = (by - ay) / e[i], ny = -(bx - ax) / e[i];   // подпись — снаружи, в 3 м от середины стороны (там белая точка редактора)
+    if (inPoly(SITE, (ax + bx) / 2 + nx, (ay + by) / 2 + ny)) { nx = -nx; ny = -ny; }
+    label(`${fmtM(e[i])} м`, 'siteLen', (ax + bx) / 2 + nx * 3, (ay + by) / 2 + ny * 3, 0.4);
+  });
+  const lm = new THREE.Mesh(mergeGeometries(parts, false), MAT.siteLine); groups.plot.add(lm);
+  const cx = SITE.reduce((s, p) => s + p[0], 0) / SITE.length, cy = SITE.reduce((s, p) => s + p[1], 0) / SITE.length;
+  label(`Участок ${dims}<br>${area} (${sotki(a)})`, 'siteArea', cx, inPoly(SITE, cx, cy) && cy < -2 ? cy : Math.min(...SITE.map(p => p[1])) + 3, 1.5);
+  // стрелки сторон света — за северной и южной границей
+  const ys = SITE.map(p => p[1]);
+  for (const [txt, y, bg] of [['С ↑ север (въезд)', Math.max(...ys) + 6, '#c0392b'], ['Ю — сад', Math.min(...ys) - 6, '#2c7a3a']]) {
     const el = document.createElement('div'); el.className = 'compass'; el.textContent = txt; el.style.background = bg;
-    const c = new CSS2DObject(el); c.position.set(14.5, 0, y); groups.site.add(c);
+    const c = new CSS2DObject(el); c.position.set(14.5, 0, y); c.visible = plotLabelsOn; groups.plot.add(c); plotLabels.push(c);
   }
 }
+// лес вокруг (хвойный, по картинкам): места деревьев выбраны раз и навсегда, на участке и у самой границы деревья не ставятся
+const TREE_SPOTS = Array.from({ length: 190 }, () => { const a = rnd() * Math.PI * 2, rad = 18 + rnd() * 105;
+  return [CENTER.x + Math.cos(a) * rad, CENTER.z + Math.sin(a) * rad, 7 + rnd() * 7, rnd() > 0.5]; });
+function buildTrees() {
+  for (const o of [...groups.trees.children]) { o.geometry.dispose(); groups.trees.remove(o); }
+  const by = { trunk: [], leaf: [], leafDark: [] };
+  for (const [x, y, h, dark] of TREE_SPOTS) {
+    if (inPoly(SITE, x, y) || edgeDist(SITE, x, y) < 4) continue;
+    if (y > 30 && Math.abs(x - 20) < 8) continue;   // не загораживать въезд
+    by.trunk.push(Cy(0.25, h * 0.3, x, TERR, y).toNonIndexed());
+    by[dark ? 'leafDark' : 'leaf'].push(new THREE.ConeGeometry(h * 0.22, h * 0.8, 9).translate(x, TERR + h * 0.6, y).toNonIndexed());
+  }
+  for (const [mat, gs] of Object.entries(by)) if (gs.length) { const m = new THREE.Mesh(mergeGeometries(gs, false), MAT[mat]); m.receiveShadow = true; groups.trees.add(m); }
+}
+buildPlot(); buildTrees();
 
 // =====================================================================
 //  Свет: солнце, небо, светильник в каждой комнате
@@ -3795,12 +4024,12 @@ const FIX_ROOMS = D.rooms.filter(r => r.fixtures).map(r => { const xs = r.poly.m
 const boxDist = (p, b) => Math.hypot(Math.max(b.x0 - p.x, 0, p.x - b.x1), Math.max(b.z0 - p.y, 0, p.y - b.z1), Math.max(b.y0 - p.z, 0, p.z - b.y1));
 for (const L of roomLights) { L.userData.i0 = L.intensity; L.userData.leak = FIX_ROOMS.some(b => boxDist(L.position, b) < L.distance); }
 function updateLeak() {
-  const allOff = Object.values(FIXTURES).every(r => !r.on);   // гасим соседей, только когда в мастерской всё выключено
+  const allOff = Object.values(FIXTURES).every(r => r.outdoor || !r.on);   // гасим соседей, только когда в мастерской всё выключено
   const c = camera.position, inside = allOff && FIX_ROOMS.some(b => c.x > b.x0 && c.x < b.x1 && c.z > b.y0 && c.z < b.y1 && c.y > b.z0 && c.y < b.z1 + 0.3);
   for (const L of roomLights) L.intensity = inside && L.userData.leak ? 0 : L.userData.i0;
 }
-// свет у камина
-{ const L = new THREE.PointLight(0xff8a3c, 4, 5, 2); L.position.set(18.8, 0.7, 3.4); groups.lights.add(L); }
+// отдельные лампы из dom-data.js (раздел lights, горят всегда): x, y, z плана, color, i — сила, d — радиус
+for (const l of D.lights) { const L = new THREE.PointLight(l.color ?? 0xff8a3c, l.i ?? 4, l.d ?? 5, 2); L.position.set(l.x, l.z, l.y); groups.lights.add(L); }
 
 const hemi = new THREE.HemisphereLight(0xdfefff, 0x8a8170, 1.1);
 const amb = new THREE.AmbientLight(0xffffff, 0.35);   // рассеянный свет, чтобы потолки внутри не были тёмными
@@ -3808,9 +4037,10 @@ scene.add(hemi, amb);
 const sun = new THREE.DirectionalLight(0xffffff, 3);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -32, right: 32, top: 32, bottom: -32, near: 1, far: 160 });
+Object.assign(sun.shadow.camera, { left: -V.sun.range, right: V.sun.range, top: V.sun.range, bottom: -V.sun.range, near: 1, far: 200 });   // дом и корт в саду
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
-sun.target.position.copy(CENTER);
+const SUN_C = new THREE.Vector3(V.sun.center[0], 0, V.sun.center[1]);   // середина между домом и кортом
+sun.target.position.copy(SUN_C);
 scene.add(sun, sun.target);
 
 function skyTex(stops) {
@@ -3866,7 +4096,7 @@ function setTime(t) {
   const T = TIMES[t], ev = T.lamps;
   curTime = t;
   sun.color.set(T.col); sun.intensity = T.si;
-  sun.position.copy(CENTER).add(new THREE.Vector3(...T.sun));
+  sun.position.copy(SUN_C).add(new THREE.Vector3(...T.sun));
   hemi.color.set(T.hemi[0]); hemi.groundColor.set(T.hemi[1]);
   applyLights(); loadSky(T.sky);
   for (const L of roomLights) L.visible = ev || L.userData.lvl === 'bs';   // в цоколе окон нет — свет горит всегда
@@ -3901,14 +4131,15 @@ const $ = id => document.getElementById(id);
 const tRoof = $('tRoof'), tAttic = $('tAttic');
 let showNames = true;   // названия комнат: подписи в облёте и «домике», строка «где я» в прогулке
 const LVL_NAME = { bs: 'Цоколь', gf: '1 этаж', attic: 'Мансарда' };
+for (const b of document.querySelectorAll('[data-view]')) { const l = b.dataset.view.split('-')[1]; if (l && !D.levels[l]) b.style.display = 'none'; }   // нет уровня — нет кнопки
+if (D.meta.name) { document.title = D.meta.name; document.querySelector('#ui h1').textContent = D.meta.name; }
 const EYE = 1.65, R = 0.25;                       // высота глаз и «радиус» человека, м
-const START = { bs: [15.6, 12.4, 270], gf: [14.6, 15.4, 180], attic: [14.8, 11.2, 0] };   // на «мостике» коридора между лестницей и вторым светом   // у входной двери / в коридоре мансарды
+const START = V.start;   // на «мостике» коридора между лестницей и вторым светом   // у входной двери / в коридоре мансарды
 const player = { lvl: 'gf', x: START.gf[0], y: START.gf[1], z: 0, yaw: 180, pitch: 0, placed: false };
-let view = 'orbit';
+let view = 'orbit', onViewChange = null;
 const isWalk = () => view.startsWith('walk');
 // какой уровень сейчас «главный»: в прогулке — где стоит человек, в «Домике» — выбранный этаж
 const viewLvl = () => isWalk() ? player.lvl : view.startsWith('doll') ? view.slice(5) : 'gf';
-const compassLabels = groups.site.children.filter(o => o.isCSS2DObject);
 
 function applyVisibility() {
   const doll = view.startsWith('doll');
@@ -3923,7 +4154,8 @@ function applyVisibility() {
     o.visible = !showNames || isWalk() ? false : doll ? o.userData.lvl === view.slice(5) : o.userData.lvl === 'gf' || (o.userData.lvl === 'attic' && tAttic.checked);
   $('where').style.display = isWalk() && showNames ? 'block' : 'none';
   $('bNamesOn').classList.toggle('on', showNames); $('bNamesOff').classList.toggle('on', !showNames);
-  for (const o of compassLabels) o.visible = !isWalk();
+  plotLabelsOn = (showNames || editMode) && !isWalk() && view !== 'doll-bs';   // длины сторон, площадь участка и стороны света
+  for (const o of plotLabels) o.visible = plotLabelsOn;
 }
 for (const el of [tRoof, tAttic]) el.addEventListener('change', applyVisibility);
 function setNames(on) { showNames = on; applyVisibility(); }
@@ -3934,7 +4166,7 @@ addEventListener('keydown', e => { if (e.code === 'KeyN') setNames(!showNames); 
 const HINTS = {
   orbit: 'Мышь: левая кнопка — вращать, колесо — приблизить, правая — сдвинуть. Щелчок по комнате в списке справа — перейти в неё. Щелчок по двери — открыть / закрыть.',
   doll: 'Этаж без крыши. Мышь — вращать и приближать. Щелчок по карте или по комнате в списке — войти и пойти пешком. Щелчок по двери — открыть / закрыть.',
-  walk: 'Щёлкни по картинке, чтобы управлять мышью (Esc — отпустить). W A S D или стрелки — идти, Shift — бегом, мышь — смотреть. У лестницы: E — наверх, Q — в цоколь. Щелчок по карте — перейти в точку. Наведи прицел на дверь: щелчок или F — открыть / закрыть.',
+  walk: 'Щёлкни по картинке, чтобы управлять мышью (Esc — отпустить). W A S D или стрелки — идти, Shift — бегом, мышь — смотреть. ' + (D.levels.bs ? 'У лестницы: E — наверх, Q — в цоколь.' : 'У лестницы: E — наверх / вниз.') + ' Щелчок по карте — перейти в точку. Наведи прицел на дверь: щелчок или F — открыть / закрыть.',
 };
 function setView(v) {
   if (editMode) { if (v.startsWith('doll')) deselectFurn(); else setEdit(false); }
@@ -3948,9 +4180,9 @@ function setView(v) {
   } else {
     if (document.pointerLockElement) document.exitPointerLock();
     const h = doll ? LZ[v.slice(5)] : 0;
-    if (v === 'doll-bs') { camera.position.set(16, h + 19, 25); controls.target.set(14, h, 9); }
-    else if (doll) { camera.position.set(22, h + 30, 44); controls.target.set(14.5, h, 14); }
-    else { camera.position.set(48, 32, 62); controls.target.set(14.5, 2, 15); }
+    if (v === 'doll-bs') setCam(V.dollBs.cam, V.dollBs.target, h);
+    else if (doll) setCam(V.doll.cam, V.doll.target, h);
+    else setCam(V.orbit.cam, V.orbit.target);
     controls.update();
   }
   for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === v);
@@ -3960,6 +4192,7 @@ function setView(v) {
   $('hint').textContent = HINTS[walk ? 'walk' : doll ? 'doll' : 'orbit'];
   applyVisibility();
   mapLvl = null;
+  onViewChange?.();
 }
 for (const b of document.querySelectorAll('[data-view]')) b.onclick = () => setView(b.dataset.view);
 
@@ -3968,7 +4201,7 @@ const hit = (o, x, y, r) => x > o.x0 - r && x < o.x1 + r && y > o.y0 - r && y < 
 const inRect = (f, x, y) => x >= f.x[0] && x <= f.x[1] && y >= f.y[0] && y <= f.y[1];
 function blocked(lvl, x, y) {
   for (const o of OBST[lvl]) if (!o.off && hit(o, x, y, R)) return true;
-  if (lvl === 'gf') { const s = D.site; return x < s.x[0] + R || x > s.x[1] - R || y < s.y[0] + R || y > s.y[1] - R; }
+  if (lvl === 'gf') return !inPoly(SITE, x, y) || edgeDist(SITE, x, y) < R;   // за границу участка не выйти
   if (lvl === 'bs') return !D.basement.area.some(a => inRect(a, x, y));   // под землёй — только внутри цоколя
   if (!D.slabs.some(s => inRect(s, x, y))) return true;          // нет пола (пустота над гостиной, лестничный проём)
   return ceilingAt(x, y, AT) - AT < 1.8;                         // под скатом слишком низко — не пройти
@@ -3999,7 +4232,7 @@ function goWalk(lvl, x, y, yaw) { placePlayer(lvl, x, y, yaw); setView('walk-' +
 const ST = D.stair;
 const STAIR = { bs: { x: ST.x[0] + ST.flight / 2, y: ST.y[1] + 0.6 }, gf: { x: ST.x[0] + ST.flight / 2, y: ST.y[1] + 0.6 }, attic: { x: ST.x[1] - ST.flight / 2, y: ST.y[1] + 0.5 } };
 // куда ведёт лестница: E — наверх, Q — вниз (в цоколь)
-const STAIR_GO = { bs: { KeyE: 'gf' }, gf: { KeyE: 'attic', KeyQ: 'bs' }, attic: { KeyE: 'gf' } };
+const STAIR_GO = { bs: { KeyE: 'gf' }, gf: D.levels.bs ? { KeyE: 'attic', KeyQ: 'bs' } : { KeyE: 'attic' }, attic: { KeyE: 'gf' } };
 const nearStair = () => Math.hypot(player.x - STAIR[player.lvl].x, player.y - STAIR[player.lvl].y) < 1.6;
 function fade(cb) { $('fade').style.opacity = 1; setTimeout(() => { cb(); $('fade').style.opacity = 0; }, 260); }
 function changeFloor(to) { fade(() => goWalk(to, STAIR[to].x, STAIR[to].y, 0)); }
@@ -4076,7 +4309,7 @@ function pip(poly, x, y) {
 const roomAt = (lvl, x, y) => D.rooms.find(r => r.lvl === lvl && pip(r.poly, x, y));
 
 // ---------- список комнат ----------
-for (const lvl of ['gf', 'attic', 'bs']) {
+for (const lvl of ['gf', 'attic', 'bs'].filter(l => D.levels[l])) {
   $('rooms').insertAdjacentHTML('beforeend', `<h3>${LVL_NAME[lvl]}</h3>`);
   for (const r of D.rooms.filter(r => r.lvl === lvl)) {
     const d = document.createElement('div'); d.className = 'r'; d.textContent = `${r.n}. ${r.name}`; r.el = d;
@@ -4088,7 +4321,7 @@ for (const lvl of ['gf', 'attic', 'bs']) {
 
 // ---------- мини-карта (как на бумажном плане: север внизу) ----------
 const mapC = $('mapc'), mctx = mapC.getContext('2d');
-const MAP = { x0: -3.5, y0: -4.5, k: 7.6 };
+const MAP = V.map;
 const mx = x => (x - MAP.x0) * MAP.k, my = y => (y - MAP.y0) * MAP.k;
 const mapStatic = {};
 let mapLvl = null;
@@ -4135,7 +4368,7 @@ function updateHud() {
   if (!isWalk()) return;
   const r = roomAt(player.lvl, player.x, player.y);
   const txt = `${LVL_NAME[player.lvl]} · ${r ? r.name : (player.lvl === 'gf' && floorZ('gf', player.x, player.y) < -0.1 ? 'участок' : 'проход')}` +
-    (nearStair() ? { bs: ' — E: подняться на 1 этаж', gf: ' — E: на мансарду, Q: в цоколь', attic: ' — E: спуститься' }[player.lvl] : '');
+    (nearStair() ? { bs: ' — E: подняться на 1 этаж', gf: D.levels.bs ? ' — E: на мансарду, Q: в цоколь' : ' — E: на мансарду', attic: ' — E: спуститься' }[player.lvl] : '');
   if (txt !== lastWhere) {
     $('where').textContent = lastWhere = txt;
     for (const q of D.rooms) q.el.classList.toggle('here', q === r);
@@ -4247,7 +4480,7 @@ $('bShot').onclick = () => {
 //  Расстановка сама запоминается в браузере; «Сохранить в файл» скачивает её, чтобы перенести в dom-data.js.
 //  Работает для любой мебели из dom-data.js — у каждого предмета должен быть свой id.
 // =====================================================================
-const TYPE_RU = { bed: 'Кровать', nightstand: 'Тумбочка', wardrobe: 'Шкаф', cabinet: 'Комод', desk: 'Стол', chair: 'Стул', sofa: 'Диван',
+const TYPE_RU = { tenniscourt: 'Теннисный корт с садом', bed: 'Кровать', nightstand: 'Тумбочка', wardrobe: 'Шкаф', cabinet: 'Комод', desk: 'Стол', chair: 'Стул', sofa: 'Диван',
   sofaL: 'Угловой диван', armchair: 'Кресло', ctable: 'Столик', rug: 'Ковёр', tvunit: 'ТВ-тумба с телевизором', table: 'Обеденный стол',
   island: 'Кухонный остров', counter: 'Кухонная тумба', uppers: 'Навесные шкафы', tall: 'Шкаф-колонна', stool: 'Барный стул', toilet: 'Унитаз',
   basin: 'Раковина', tub: 'Ванна', shower: 'Душ', washer: 'Стиральная машина', unit: 'Техника', boiler: 'Бойлер', shelf: 'Стеллаж',
@@ -4256,7 +4489,7 @@ const TYPE_RU = { bed: 'Кровать', nightstand: 'Тумбочка', wardrob
   sewtable: 'Промышленная машина JACK', loungeChair: 'Кресло', chunkyPouf: 'Пуф', pedestalTable: 'Столик', arcLamp: 'Торшер', slatWall: 'Реечная панель с полкой', landscapeArt: 'Картина', platformBed: 'Кровать', oakNightstand: 'Прикроватная тумбочка', oakDresser: 'Комод', windowDesk: 'Стол у окна', spindleChair: 'Стул', woodPendant: 'Подвесной светильник', libLadder: 'Лестница библиотеки', libraryWall: 'Стеллаж-библиотека', roundCoffee: 'Круглый столик', sageVanity: 'Тумба с двумя раковинами', showerAlcove: 'Душ-ниша', wcPair: 'Унитаз и биде', freeTub: 'Ванна', towelWarmer: 'Сушилка для полотенец', collarBeams: 'Балки со светильниками', teakLounge: 'Уличное кресло', planterBox: 'Кашпо со злаками', ledMirror: 'Зеркало с подсветкой', glassWardrobe: 'Шкафы со стеклянными дверцами', vanityDesk: 'Туалетный столик', bandPouf: 'Пуф', drawerChest: 'Комод с мраморной столешницей', ringPendant: 'Люстра из колец', cuttable: 'Раскроечный стол', cutisland: 'Раскроечный остров', sewcabinet: 'Шкаф мастерской', taskchair: 'Рабочее кресло', tubchair: 'Кресло букле', drumtable: 'Столик из травертина', imacdesk: 'Стол с iMac', laundrycounter: 'Тумба с раковиной и машинами', kitchentall: 'Кухонные колонны', stonetable: 'Столик из ореха', wardrobeRun: 'Шкафы гардеробной', breezewall: 'Стена из блоков', sideboard: 'Комод', diningdesk: 'Обеденный стол', woodarmchair: 'Кресло', banquette: 'Диван-скамья', island2: 'Кухонный остров', woodstool: 'Стул у острова', domePendant: 'Подвесы над островом', kitchenrun: 'Кухонный гарнитур', cylspot: 'Точечные светильники', laundrywall: 'Стена прачечной', dryrack: 'Сушилка для белья', ledshelves: 'Полки с подсветкой', laundrytall: 'Высокий шкаф', hangrail: 'Штанга для одежды', ceilbeams: 'Балки на потолке', olivetree: 'Оливковое дерево', laundrybasket: 'Корзина для белья', reliefpanel: 'Панно с горой', tileband: 'Дорожка из плитки', wainscot: 'Стеновые панели', wctoilet: 'Подвесной унитаз', powderbasin: 'Раковина с полотенцем', brassmirror: 'Зеркало и бра', wcshelf: 'Полка с декором', goldprint: 'Картина', paperholder: 'Держатель бумаги', toiletbrush: 'Ёршик', downlight: 'Точечный светильник', strelitzia: 'Стрелиция в кашпо', workdesk: 'Рабочее место с iMac', deskchair: 'Рабочее кресло', brasslamp: 'Латунный торшер', pinboard: 'Доска вдохновения', floormirror: 'Зеркало в рост', podium: 'Подиум для примерки', tracklight: 'Трековый свет', conePendant: 'Подвесные лампы', driedvase: 'Вазы с сухоцветами', fabricshelf: 'Стеллаж с тканями', mannequin: 'Манекен',
   gridceiling: 'Решётчатый потолок', screenwall: 'Экран с тумбой и полками', cinemasofa: 'П-образный диван', roundtable: 'Круглый столик',
   xmastree: 'Новогодняя ёлка', coffeebar: 'Кофейный буфет', treadmill: 'Беговая дорожка', spinbike: 'Велотренажёр', rower: 'Гребной тренажёр', cabletower: 'Кроссовер (блоки)', powerrack: 'Силовая рама', platetree: 'Стойка для блинов', dbrack: 'Стойка с гантелями', adjbench: 'Регулируемая скамья', kbrack: 'Полка с гирями', yogaroll: 'Коврики и мячи', walltv: 'Экран для занятий', pouf: 'Пуф', ottoman: 'Кожаный пуф', sconce: 'Бра', storageshelf: 'Стеллаж с контейнерами и чемоданами' };
-const LOW_PICK = ['rug', 'pendants', 'pendLine', 'curtain'];   // их выбираем, только если под мышью больше ничего нет
+const LOW_PICK = ['tenniscourt', 'rug', 'pendants', 'pendLine', 'curtain'];   // их выбираем, только если под мышью больше ничего нет
 let sel = null, selGroup = null, selBox = null, fdrag = null, downAt = null;
 onFurnChanged = () => { for (const k in mapStatic) delete mapStatic[k]; mapLvl = null; };
 
@@ -4312,7 +4545,7 @@ function setEdit(on) {
   $('edit').style.display = on ? 'block' : 'none';
   if (on) { if (!view.startsWith('doll')) setView(isWalk() ? 'doll-' + player.lvl : 'doll-gf'); $('hint').textContent = 'Режим расстановки мебели. Колесо — приблизить, тянуть пустое место — вращать вид, правая кнопка — сдвинуть вид.'; }
   else { deselectFurn(); controls.enabled = !isWalk(); if (!isWalk()) $('hint').textContent = HINTS[view.startsWith('doll') ? 'doll' : 'orbit']; }
-  updateEditButtons();
+  updateEditButtons(); siteSel = null; buildSiteHandles(); applyVisibility();
 }
 $('bEdit').onclick = () => setEdit(!editMode);
 $('eDone').onclick = () => deselectFurn();
@@ -4325,6 +4558,7 @@ $('eSave').onclick = () => {
   const out = saveEdits(), n = Object.keys(out).length;
   const txt = `// Расстановка мебели из редактора, ${new Date().toLocaleString('ru')}. Передвинуто предметов: ${n}.\n` +
     `// x, y — новое место, deg — поворот (0 = лицом на север/въезд); bx, by, bdeg — как было в dom-data.js.\n` +
+    (JSON.stringify(SITE) !== JSON.stringify(SITE_BASE) ? `// Граница участка (углы x, y): poly — новая, base — как было в dom-data.js.\nwindow.SITE_EDITS = ${JSON.stringify({ poly: SITE, base: SITE_BASE })};\n` : '') +
     `window.FURN_EDITS = ${JSON.stringify(out, null, 1)};\n`;
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/javascript' }));
   a.download = 'furniture-edits.js'; a.click();
@@ -4348,6 +4582,70 @@ function pickFurn(e) {
   return best || low;
 }
 function floorHit(e, f) { dragPlane.constant = -LZ[f.lvl]; return mouseRay(e).intersectPlane(dragPlane, new THREE.Vector3()); }
+// ---------- контур участка: оранжевые точки — углы (тянуть), белые — середины сторон (потянуть = новый угол) ----------
+// Точки выбираются по расстоянию на экране (16 px), поэтому их легко поймать издалека. Выбранный угол — красный, Delete убирает его.
+const dotTex = (fill) => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  g.fillStyle = fill; g.strokeStyle = '#fff'; g.lineWidth = 8; g.beginPath(); g.arc(32, 32, 26, 0, 6.29); g.fill(); g.stroke();
+  const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return tx; };
+const DOT = { c: dotTex('#ff7a1a'), s: dotTex('#d0302a'), m: dotTex('#8a8f94') };
+const siteHandles = new THREE.Group(); scene.add(siteHandles);
+let siteDrag = false, siteSel = null;
+function siteHandlePts() {
+  return SITE.flatMap((p, i) => { const q = SITE[(i + 1) % SITE.length]; return [{ i, mid: false, x: p[0], y: p[1] }, { i, mid: true, x: (p[0] + q[0]) / 2, y: (p[1] + q[1]) / 2 }]; });
+}
+function buildSiteHandles() {
+  for (const o of [...siteHandles.children]) { o.material.dispose(); siteHandles.remove(o); }
+  siteHandles.visible = editMode && viewLvl() === 'gf';
+  if (!siteHandles.visible) return;
+  for (const h of siteHandlePts()) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: h.mid ? DOT.m : h.i === siteSel ? DOT.s : DOT.c, sizeAttenuation: false, depthTest: false }));
+    s.scale.setScalar(h.mid ? 0.022 : 0.034); s.position.set(h.x, TERR + 0.05, h.y); s.renderOrder = 10; siteHandles.add(s);
+  }
+}
+function updateSiteInfo() { const { a, dims, area } = siteInfo(); $('eSite').innerHTML = `<b>📐 Участок</b> ${dims} · ${area} (${sotki(a)})`; }
+function refreshSite(final) {
+  buildPlot(); buildSiteHandles(); updateSiteInfo();
+  if (final) { try { localStorage.setItem(SITE_LS, JSON.stringify({ poly: SITE, base: SITE_BASE })); } catch {} buildTrees(); }
+}
+function pickSiteHandle(e) {
+  if (!siteHandles.visible) return null;
+  const b = cvs.getBoundingClientRect(), v = new THREE.Vector3();
+  let best = null, bd = 16;
+  for (const h of siteHandlePts()) {
+    v.set(h.x, TERR + 0.05, h.y).project(camera); if (v.z > 1) continue;
+    const d = Math.hypot((v.x + 1) / 2 * b.width + b.left - e.clientX, (1 - v.y) / 2 * b.height + b.top - e.clientY) - (h.mid ? 0 : 4);
+    if (d < bd) { bd = d; best = h; }
+  }
+  return best;
+}
+cvs.addEventListener('pointerdown', e => {
+  if (!editMode || e.button !== 0) return;
+  const h = pickSiteHandle(e);
+  if (!h) { if (siteSel !== null) { siteSel = null; buildSiteHandles(); } return; }
+  if (h.mid) { SITE.splice(h.i + 1, 0, [+h.x.toFixed(2), +h.y.toFixed(2)]); siteSel = h.i + 1; } else siteSel = h.i;
+  deselectFurn(); siteDrag = true; downAt = null;
+  controls.enabled = false; cvs.setPointerCapture(e.pointerId); e.stopImmediatePropagation();
+  refreshSite(false);
+}, { capture: true });
+cvs.addEventListener('pointermove', e => {
+  if (!siteDrag) return;
+  dragPlane.constant = -TERR; const p = mouseRay(e).intersectPlane(dragPlane, new THREE.Vector3()); if (!p) return;
+  const snap = v => e.altKey ? +v.toFixed(2) : Math.round(v * 10) / 10;
+  SITE[siteSel] = [snap(p.x), snap(p.z)]; refreshSite(false);
+});
+cvs.addEventListener('pointerup', () => { if (!siteDrag) return; siteDrag = false; controls.enabled = true; refreshSite(true); });
+addEventListener('keydown', e => {
+  if (!editMode || siteSel === null || !['Delete', 'Backspace'].includes(e.code)) return;
+  if (SITE.length > 3) { SITE.splice(siteSel, 1); siteSel = null; refreshSite(true); }
+  e.preventDefault();
+});
+$('eSiteReset').onclick = () => {
+  if (!confirm('Вернуть границы участка как в проекте (dom-data.js)?')) return;
+  SITE.splice(0, SITE.length, ...SITE_BASE.map(p => [...p])); siteSel = null; refreshSite(true);
+};
+onViewChange = buildSiteHandles;
+updateSiteInfo();
+
 // перехват до OrbitControls: если щёлкнули по мебели, вид не вращаем
 cvs.addEventListener('pointerdown', e => {
   if (!editMode || e.button !== 0) return;
@@ -4430,7 +4728,7 @@ function selfCheck() {
   }
   // 2) до каждой комнаты можно дойти (поиск по сетке 10 см от входа / от лестницы)
   for (const lvl of LVLS) {
-    const st = START[lvl], step = 0.1, x0 = -3, y0 = -4, nx = 360, ny = 390, seen = new Uint8Array(nx * ny), q = [];
+    const st = START[lvl], step = 0.1, x0 = V.grid.x0, y0 = V.grid.y0, nx = Math.round(V.grid.w / step), ny = Math.round(V.grid.h / step), seen = new Uint8Array(nx * ny), q = [];
     const id = (i, j) => j * nx + i;
     const si = Math.round((st[0] - x0) / step), sj = Math.round((st[1] - y0) / step);
     seen[id(si, sj)] = 1; q.push(si, sj);

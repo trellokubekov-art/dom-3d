@@ -8,7 +8,8 @@ param(
   [int]$WaitMs = 30000
 )
 $edge = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
-$page = "file:///C:/projects/dom-3d/output/dom-3d.html"
+$html = Get-ChildItem "$PSScriptRoot\..\output\*.html" | Select-Object -First 1   # страница проекта (dom-3d.html / dom-3d-2.html …)
+$page = "file:///" + ($html.FullName -replace '\\', '/')
 if ($Query) { $page += "?" + $Query }
 $prof = Join-Path $env:TEMP "dom3d-edge-profile"
 & $edge --headless=new --user-data-dir="$prof" --use-angle=swiftshader --enable-unsafe-swiftshader --ignore-gpu-blocklist `

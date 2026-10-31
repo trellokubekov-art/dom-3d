@@ -1,8 +1,8 @@
-﻿# Переносит расстановку мебели из редактора (файл furniture-edits.js, кнопка «Сохранить в файл»)
+# Переносит расстановку мебели из редактора (файл furniture-edits.js, кнопка «Сохранить в файл»)
 # в output\dom-data.js: у каждого передвинутого предмета меняются x, y и поворот rot (в градусах).
 # По умолчанию берёт самый свежий furniture-edits*.js из папки «Загрузки».
 param([string]$EditsFile)
-$data = 'C:\projects\dom-3d\output\dom-data.js'
+$data = Join-Path $PSScriptRoot '..\output\dom-data.js'
 if (-not $EditsFile) {
   $EditsFile = Get-ChildItem "$env:USERPROFILE\Downloads\furniture-edits*.js" -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
@@ -28,6 +28,14 @@ foreach ($p in $edits.PSObject.Properties) {
   $new = $new -replace "(y: -?[\d.]+)", ('$1, rot: ' + [int]$e.deg)
   $t = $t.Substring(0, $m.Index) + $new + $t.Substring($m.Index + $m.Length)
   $done++
+}
+# граница участка (если в файле есть window.SITE_EDITS) — строка site: { poly: [...] } в dom-data.js
+$sm = [regex]::Match($raw, 'window\.SITE_EDITS\s*=\s*(\{[^\r\n]*\})\s*;')
+if ($sm.Success) {
+  $site = $sm.Groups[1].Value | ConvertFrom-Json
+  $pts = ($site.poly | ForEach-Object { '[' + ([double]$_[0]).ToString($inv) + ', ' + ([double]$_[1]).ToString($inv) + ']' }) -join ', '
+  $t = [regex]::Replace($t, "site: \{ poly: \[[^\r\n]*\] \},", "site: { poly: [$pts] },", 1)
+  "Граница участка перенесена: $(@($site.poly).Count) углов"
 }
 [IO.File]::WriteAllText($data, $t, (New-Object Text.UTF8Encoding $false))
 "Перенесено предметов: $done из $(@($edits.PSObject.Properties).Count) (файл: $EditsFile)"
