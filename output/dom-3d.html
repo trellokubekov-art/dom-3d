@@ -112,6 +112,7 @@ if (!D) { showMsg('Не найден файл dom-data.js — он должен 
 // Необязательные разделы: чего нет в dom-data.js — считаем пустым, чтобы один и тот же движок годился для любого дома.
 for (const k of ['roofs', 'walls', 'slabs', 'floors', 'columns', 'blocks', 'pv', 'frames', 'drapes', 'rooms', 'furniture', 'lights']) D[k] ??= [];
 D.meta ??= {}; D.finish ??= {}; D.basement ??= { area: [], ceil: [] };
+for (const p of D.roofs) if (p.poly) { const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]); p.x = [Math.min(...xs), Math.max(...xs)]; p.y = [Math.min(...ys), Math.max(...ys)]; }
 // Камеры, старт прогулки, солнце, мини-карта, сетка проверки — раздел view в dom-data.js; чего нет — значения первого дома.
 const V = Object.assign({
   center: [14.5, 15],                                    // «середина» дома (вокруг неё растёт лес)
@@ -122,6 +123,7 @@ const V = Object.assign({
   sun: { center: [14.5, -4], range: 48 },                // куда направлено солнце (центр теней) и полуширина карты теней, м
   map: { x0: -3.5, y0: -4.5, k: 7.6 },                   // мини-карта: левый верхний угол плана и пикс/м
   grid: { x0: -3, y0: -4, w: 36, h: 39 },                // сетка проверки проходов (?check=1), м
+  northDeg: 0,                                           // куда смотрит север: 0 — +Y (как в доме 1), 180 — −Y; поворачивает солнце и небо
 }, D.view || {});
 const AT = D.levels.attic.z, GF_H = D.levels.gf.h, TERR = D.meta.terrain ?? -0.3;
 const CENTER = new THREE.Vector3(V.center[0], 0, V.center[1]);
@@ -928,17 +930,32 @@ function box(x, y, z, mat, grp) {
 //  Крыши
 // =====================================================================
 const DEG = Math.PI / 180;
-function under(p, x, y) {
-  const e = 1e-6;
-  if (x < p.x[0] - e || x > p.x[1] + e || y < p.y[0] - e || y > p.y[1] + e) return null;
+// высота плоскости ската в точке (без проверки, что точка внутри ската)
+function planeZ(p, x, y) {
   if (!p.pitch) return p.z;
   const d = p.fall === '+x' ? x - p.hi : p.fall === '-x' ? p.hi - x : p.fall === '+y' ? y - p.hi : p.hi - y;
   return p.z - d * Math.tan(p.pitch * DEG);
+}
+function pip2(poly, x, y) {   // точка внутри многоугольника (луч вправо)
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+// Скат: прямоугольник x/y ИЛИ многоугольник poly (вальмы: трапеции и треугольники с общей плоскостью hi/z/fall/pitch)
+function under(p, x, y) {
+  const e = 1e-6;
+  if (p.poly) { if (!pip2(p.poly, x, y)) return null; }
+  else if (x < p.x[0] - e || x > p.x[1] + e || y < p.y[0] - e || y > p.y[1] + e) return null;
+  return planeZ(p, x, y);
 }
 function ceilingAt(x, y, floorZ) {   // высота потолка/кровли над точкой
   if (floorZ < 0) return floorZ + D.levels.bs.h;   // цоколь
   let top = floorZ === 0 ? GF_H : Infinity;
   if (floorZ > 0) for (const p of D.roofs) { const u = under(p, x, y); if (u !== null) top = Math.min(top, u); }
+  if (floorZ > 0 && D.levels.attic.h) top = Math.min(top, floorZ + D.levels.attic.h);   // плоский потолок 2-го этажа (дом с чердаком)
   return top === Infinity ? floorZ + 2.8 : top;
 }
 function quadsGeo(quads, uvFn) {
@@ -950,7 +967,27 @@ function quadsGeo(quads, uvFn) {
   g.computeVertexNormals();
   return g;
 }
+// многоугольный скат (вальма): верх и низ — триангуляция, бока — по рёбрам; каждая грань в обе стороны, чтобы не думать об обходе
+function trisGeo(tris, uvFn) {
+  const quads = [];
+  for (const [a, b, c] of tris) { quads.push([a, b, c, c]); quads.push([c, b, a, a]); }
+  return quadsGeo(quads, uvFn);
+}
+function roofPoly(p) {
+  const pts = p.poly.map(([x, y]) => new THREE.Vector2(x, y));
+  const idx = THREE.ShapeUtils.triangulateShape(pts, []);
+  const V = (q, dz) => new THREE.Vector3(q.x, planeZ(p, q.x, q.y) + dz, q.y);
+  const top = idx.map(([a, b, c]) => [V(pts[a], p.t), V(pts[b], p.t), V(pts[c], p.t)]);
+  const bot = idx.map(([a, b, c]) => [V(pts[a], 0), V(pts[b], 0), V(pts[c], 0)]);
+  const sides = [];
+  for (let i = 0; i < pts.length; i++) { const A = pts[i], B = pts[(i + 1) % pts.length]; sides.push([V(A, 0), V(A, p.t), V(B, p.t), V(B, 0)]); sides.push([V(B, 0), V(B, p.t), V(A, p.t), V(A, 0)]); }
+  const uvFn = p.fall === '+x' || p.fall === '-x' ? v => [v.z, v.x] : v => [v.x, v.z];
+  put(trisGeo(top, uvFn), p.pitch ? 'metal' : 'plaster', 'roof', !!p.pitch);
+  put(quadsGeo(sides, uvFn), p.pitch ? 'metal' : 'plaster', 'roof');
+  put(trisGeo(bot, v => [v.x, v.z]), 'slab', 'roof');
+}
 for (const p of D.roofs) {
+  if (p.poly) { roofPoly(p); continue; }
   const c = [[p.x[0], p.y[0]], [p.x[1], p.y[0]], [p.x[1], p.y[1]], [p.x[0], p.y[1]]];
   const b = c.map(([x, y]) => new THREE.Vector3(x, under(p, x, y), y));
   const t = b.map(v => v.clone().setY(v.y + p.t));
@@ -3972,9 +4009,10 @@ function buildPlot() {
   label(`Участок ${dims}<br>${area} (${sotki(a)})`, 'siteArea', cx, inPoly(SITE, cx, cy) && cy < -2 ? cy : Math.min(...SITE.map(p => p[1])) + 3, 1.5);
   // стрелки сторон света — за северной и южной границей
   const ys = SITE.map(p => p[1]);
-  for (const [txt, y, bg] of [['С ↑ север (въезд)', Math.max(...ys) + 6, '#c0392b'], ['Ю — сад', Math.min(...ys) - 6, '#2c7a3a']]) {
+  const nS = V.northDeg === 180 ? -1 : 1;   // север у +Y (дом 1) или у −Y
+  for (const [txt, y, bg] of [['С ↑ север', nS > 0 ? Math.max(...ys) + 6 : Math.min(...ys) - 6, '#c0392b'], ['Ю — юг', nS > 0 ? Math.min(...ys) - 6 : Math.max(...ys) + 6, '#2c7a3a']]) {
     const el = document.createElement('div'); el.className = 'compass'; el.textContent = txt; el.style.background = bg;
-    const c = new CSS2DObject(el); c.position.set(14.5, 0, y); c.visible = plotLabelsOn; groups.plot.add(c); plotLabels.push(c);
+    const c = new CSS2DObject(el); c.position.set(V.center[0], 0, y); c.visible = plotLabelsOn; groups.plot.add(c); plotLabels.push(c);
   }
 }
 // лес вокруг (хвойный, по картинкам): места деревьев выбраны раз и навсегда, на участке и у самой границы деревья не ставятся
@@ -4039,7 +4077,8 @@ sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -V.sun.range, right: V.sun.range, top: V.sun.range, bottom: -V.sun.range, near: 1, far: 200 });   // дом и корт в саду
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
-const SUN_C = new THREE.Vector3(V.sun.center[0], 0, V.sun.center[1]);   // середина между домом и кортом
+const SUN_C = new THREE.Vector3(V.sun.center[0], 0, V.sun.center[1]);
+const NROT = V.northDeg * DEG, UP = new THREE.Vector3(0, 1, 0);   // поворот сторон света (солнце, небо, подписи)   // середина между домом и кортом
 sun.target.position.copy(SUN_C);
 scene.add(sun, sun.target);
 
@@ -4079,7 +4118,7 @@ function applyLights() {
   const T = TIMES[curTime], hdr = HDR[T.sky] && hdrCache[T.sky];
   scene.background = hdr ? hdr.bg : SKY[T.sky];
   scene.environment = hdr ? hdr.env : null;
-  scene.backgroundRotation.set(0, T.rot || 0, 0); scene.environmentRotation.set(0, T.rot || 0, 0);
+  scene.backgroundRotation.set(0, (T.rot || 0) + NROT, 0); scene.environmentRotation.set(0, (T.rot || 0) + NROT, 0);
   scene.environmentIntensity = T.env;   // вечером и ночью комнаты освещают лампы, а не небо (рассеянный свет проходит сквозь стены)
   hemi.intensity = hdr ? T.hemi[2] : T.hemi[3];
   amb.intensity = hdr ? T.amb[0] : T.amb[1];
@@ -4096,7 +4135,7 @@ function setTime(t) {
   const T = TIMES[t], ev = T.lamps;
   curTime = t;
   sun.color.set(T.col); sun.intensity = T.si;
-  sun.position.copy(SUN_C).add(new THREE.Vector3(...T.sun));
+  sun.position.copy(SUN_C).add(new THREE.Vector3(...T.sun).applyAxisAngle(UP, NROT));
   hemi.color.set(T.hemi[0]); hemi.groundColor.set(T.hemi[1]);
   applyLights(); loadSky(T.sky);
   for (const L of roomLights) L.visible = ev || L.userData.lvl === 'bs';   // в цоколе окон нет — свет горит всегда
@@ -4344,7 +4383,7 @@ function buildMap(lvl) {
   }
   for (const o of OBST[lvl]) if (!o.off) rect(o.x0, o.x1, o.y0, o.y1, o.k === 'door' ? '#8a5a35' : o.k === 'wall' ? '#2f3236' : o.k === 'stair' ? '#b49870' : '#9d978c');
   const s = STAIR[lvl]; g.fillStyle = '#c0392b'; g.font = 'bold 11px Segoe UI'; g.fillText('E', mx(s.x) - 3, my(s.y) + 4);
-  g.fillStyle = '#333'; g.font = '11px Segoe UI'; g.fillText('Север (въезд) ↓', 4, c.height - 5); g.fillText(LVL_NAME[lvl], 4, 12);
+  g.fillStyle = '#333'; g.font = '11px Segoe UI'; g.fillText(V.northDeg === 180 ? 'Север ↑' : 'Север ↓', 4, c.height - 5); g.fillText(LVL_NAME[lvl], 4, 12);
   return c;
 }
 function drawMap() {
