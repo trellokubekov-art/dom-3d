@@ -38,6 +38,9 @@
   .compass { background: #c0392b; color: #fff; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 13px; }
 .siteLen { background: rgba(255,255,255,.9); color: #7a3a10; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: bold; border: 1px solid #e07a2a; pointer-events: none; }
 .siteArea { background: #2c7a3a; color: #fff; padding: 4px 10px; border-radius: 5px; font-size: 13px; font-weight: bold; text-align: center; pointer-events: none; line-height: 1.35; }
+body.hideui .panel, body.hideui #fps, body.hideui #doorTip { display: none !important; }   /* «Скрыть всё»: только картинка */
+#bShow { position: fixed; left: 12px; top: 12px; z-index: 11; display: none; flex: none; padding: 4px 9px; font-size: 12px; opacity: .55; }
+#bShow:hover { opacity: 1; }
 .bldTag { background: rgba(47,111,159,.92); color: #fff; padding: 3px 9px; border-radius: 5px; font-size: 13px; font-weight: bold; pointer-events: none; white-space: nowrap; }
 .bldTag.on { background: #d0302a; }
 #edit #eBld { margin: 6px 0 2px; padding: 6px 8px; background: #eef3f7; border-radius: 5px; font-size: 13px; }
@@ -63,8 +66,9 @@
     <label><input type="checkbox" id="tRoof" checked> Крыша</label>
     <label><input type="checkbox" id="tAttic" checked> Мансарда и перекрытие</label>
   </div>
-  <div class="row" style="margin-top:8px"><button id="bShot">📷 Скриншот</button></div>
+  <div class="row" style="margin-top:8px"><button id="bShot">📷 Скриншот</button><button id="bHide" title="Спрятать все панели и подписи (клавиша H)">🙈 Скрыть всё (H)</button></div>
 </div>
+<button id="bShow" title="Показать панели (H)">👁 Панели</button>
 <div id="rooms" class="panel"></div>
 <div id="edit" class="panel">
   <b>🪑 Расстановка мебели</b>
@@ -4718,7 +4722,7 @@ function carWheel(R, W, rimR, spokes, x, y, z, side) {   // side +1 — прав
   const uv = tire.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 44, uv.getY(i) * 1.2); tire.userData.ownUV = true;
   r.push([tire, 'carTire', true]);
   const off = side * (W / 2 - 0.035);   // наружная плоскость диска
-  r.push([CyZ(rimR - 0.005, 0.03, 0, 0, side * (W / 2 - 0.09), 40), 'carRim'], [CyZ(rimR - 0.01, 0.2, 0, 0, 0, 40), 'under']);   // бочка диска
+  r.push([CyZ(rimR - 0.005, 0.03, 0, 0, side * (W / 2 - 0.09), 40), 'carRim'], [CyZ(rimR - 0.01, 0.2, 0, 0, 0, 40), 'carUnder']);   // бочка диска
   for (let i = 0; i < spokes; i++) { const a = i * 2 * Math.PI / spokes + (i % 2 ? 0.14 : 0); const sp = Bx(0.028, rimR - 0.075, 0.04).translate(0, 0.07, off).rotateZ(a); r.push([sp, 'carRim']); }
   r.push([CyZ(0.075, 0.03, 0, 0, off + 0.005, 24), 'carRim'], [CyZ(0.03, 0.012, 0, 0, off + 0.025, 16), 'chrome']);
   r.push([CyZ(rimR * 0.78, 0.028, 0, 0, side * 0.02, 40), 'carDisc'], [RB(0.08, 0.22, 0.06, 0.015).translate(-0.19, 0.0, side * 0.04), 'carCaliper']);
@@ -5311,14 +5315,20 @@ function applyVisibility() {
   }
   else { groups.roof.visible = tRoof.checked && tAttic.checked; groups.attic.visible = groups.ceil.visible = tAttic.checked; }
   for (const o of roomLabels)
-    o.visible = !showNames || isWalk() ? false : doll ? o.userData.lvl === view.slice(5) : o.userData.lvl === 'gf' || (o.userData.lvl === 'attic' && tAttic.checked);
+    o.visible = !showNames || isWalk() || uiHidden ? false : doll ? o.userData.lvl === view.slice(5) : o.userData.lvl === 'gf' || (o.userData.lvl === 'attic' && tAttic.checked);
   $('where').style.display = isWalk() && showNames ? 'block' : 'none';
   $('bNamesOn').classList.toggle('on', showNames); $('bNamesOff').classList.toggle('on', !showNames);
-  plotLabelsOn = (showNames || editMode) && !isWalk() && view !== 'doll-bs';   // длины сторон, площадь участка и стороны света
+  plotLabelsOn = (showNames || editMode) && !isWalk() && view !== 'doll-bs' && !uiHidden;   // длины сторон, площадь участка и стороны света
   for (const o of plotLabels) o.visible = plotLabelsOn;
 }
 for (const el of [tRoof, tAttic]) el.addEventListener('change', applyVisibility);
 function setNames(on) { showNames = on; applyVisibility(); }
+// «Скрыть всё» (кнопка / клавиша H): прячет панели, подписи комнат и участка, оставляет только картинку; маленькая кнопка 👁 возвращает
+let uiHidden = false;
+function setUiHidden(on) { uiHidden = on; document.body.classList.toggle('hideui', on); $('bShow').style.display = on ? 'block' : 'none'; applyVisibility(); }
+$('bHide').onclick = () => setUiHidden(true);
+$('bShow').onclick = () => setUiHidden(false);
+addEventListener('keydown', e => { if (e.code === 'KeyH' && !e.ctrlKey && !e.altKey) setUiHidden(!uiHidden); });
 $('bNamesOn').onclick = () => setNames(true);
 $('bNamesOff').onclick = () => setNames(false);
 addEventListener('keydown', e => { if (e.code === 'KeyN') setNames(!showNames); });
@@ -5698,6 +5708,7 @@ function selectFurn(f) {
   buildFurniture(f);   // всё, кроме выбранного, — одним куском; выбранный — отдельно, чтобы его можно было двигать
   selGroup = new THREE.Group();
   for (const [g, mat, keepUV] of f.parts) {
+    if (!MAT[mat]) { console.warn('Нет материала', mat, 'у', f.it.t); continue; }   // как и при сборке: деталь с неизвестным материалом пропускаем
     const c = g.clone();
     if (!c.attributes.normal) c.computeVertexNormals();
     if (!keepUV || !c.attributes.uv) worldUV(c);
@@ -5977,7 +5988,8 @@ setMode('day');
   if (Q.get('doors') === 'closed') for (const d of DOORS) { d.isOpen = false; d.obst.off = false; }   // для проверки
   if (Q.get('lights') === 'off') for (const r of Object.values(FIXTURES)) { r.on = false; applyFixture(r); }   // для проверки темноты
   if (Q.get('drapes')) for (const d of DRAPES) { d.state = +Q.get('drapes'); for (const p of d.panels) { p.w = d.state >= p.L.k ? p.wClosed : p.wOpen; shapePanel(p); } }   // drapes=1 тюль, 2 шторы
-  if (Q.get('ui') === '0') for (const id of ['ui', 'rooms', 'hint', 'fps']) $(id).style.visibility = 'hidden';
+  if (Q.get('ui') === '0') { for (const id of ['ui', 'rooms', 'hint', 'fps']) $(id).style.visibility = 'hidden'; $('bShow').style.display = 'none'; }
+  if (Q.get('ui') === 'hide') setUiHidden(true);   // как кнопка «Скрыть всё»
   if (v.startsWith('walk')) {
     const lvl = v.slice(5), s = START[lvl], p = (Q.get('pos') || '').split(',').map(Number);
     goWalk(lvl, p.length === 2 ? p[0] : s[0], p.length === 2 ? p[1] : s[1], Number(Q.get('yaw') ?? s[2]));
