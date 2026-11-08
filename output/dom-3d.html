@@ -1546,13 +1546,16 @@ for (const fr of D.frames || []) {
   CUR_BLD = fr.bld || 'house';
   const w = D.walls.find(q => q.id === fr.wall);
   const [ax, ay] = w.a, [bx, by] = w.b, L = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / L, uy = (by - ay) / L;
-  const topAt = s => {   // верх кровли над точкой стены
+  const topAt0 = s => {   // верх кровли над точкой стены
     let z = -Infinity;
     for (const p of D.roofs) if (w.clip.includes(p.g)) { const u = under(p, ax + ux * s, ay + uy * s); if (u !== null) z = Math.max(z, u + p.t); }
     return z;
   };
-  const e = (topAt(0.02) + topAt(L - 0.02)) / 2, pk = topAt(L / 2), k = (pk - e) / (L / 2), W = 0.35, o = W * Math.hypot(1, k);
-  const pts = [[-W, fr.zb[0]], [0, fr.zb[0]], [0, e], [L / 2, pk], [L, e], [L, fr.zb[1]], [L + W, fr.zb[1]], [L + W, e + o - k * W], [L / 2, pk + o], [-W, e + o - k * W]];
+  const topAt = (s, dir) => { let v = topAt0(s); for (let k = 0; !isFinite(v) && k < 60; k++) { s += dir * 0.1; v = topAt0(s); } return v; };   // если над концом стены кровли нет — ищем ближе к середине
+  // карнизы на концах могут быть на разной высоте (скат обрезан у плоской крыши) — рамка считается для каждого конца отдельно
+  const e0 = topAt(0.02, 1), e1 = topAt(L - 0.02, -1), pk = topAt(L / 2, 1), W = 0.35;
+  const k0 = (pk - e0) / (L / 2), k1 = (pk - e1) / (L / 2), o0 = W * Math.hypot(1, k0), o1 = W * Math.hypot(1, k1), o = Math.max(o0, o1);
+  const pts = [[-W, fr.zb[0]], [0, fr.zb[0]], [0, e0], [L / 2, pk], [L, e1], [L, fr.zb[1]], [L + W, fr.zb[1]], [L + W, e1 + o1 - k1 * W], [L / 2, pk + o], [-W, e0 + o0 - k0 * W]];
   const geo = new THREE.ExtrudeGeometry(new THREE.Shape(pts.map(q => new THREE.Vector2(...q))), { depth: 0.5, bevelEnabled: false, curveSegments: 1 });
   const u = new THREE.Vector3(ux, 0, uy), v = new THREE.Vector3(0, 1, 0), n = new THREE.Vector3().crossVectors(u, v);
   const out = { '+x': [1, 0], '-x': [-1, 0], '+y': [0, 1], '-y': [0, -1] }[fr.side];
@@ -1562,7 +1565,9 @@ for (const fr of D.frames || []) {
   put(geo, 'plaster', w.lvl);
 }
 
-for (const s of D.slabs) { CUR_BLD = s.bld || 'house'; box(s.x, s.y, [GF_H, AT], 'slab', 'ceil'); }
+// перекрытие: по умолчанию между потолком 1 этажа и полом мансарды; z: [низ, верх] — другая отметка (высокий зал, плоская крыша выше)
+const slabZ = s => s.z || [GF_H, AT];
+for (const s of D.slabs) { CUR_BLD = s.bld || 'house'; box(s.x, s.y, slabZ(s), 'slab', 'ceil'); }
 for (const f of D.floors) {
   CUR_BLD = f.bld || 'house';
   const top = f.z ?? 0, base = f.base ?? TERR;
@@ -1574,9 +1579,10 @@ if (D.gravel) {
   const G = D.gravel, h = G.h || 0.05, b = G.band || 0.3;
   const shape = (x0, x1, y0, y1) => new THREE.Shape([[x0, -y0], [x1, -y0], [x1, -y1], [x0, -y1]].map(p => new THREE.Vector2(...p)));
   const hole = (x0, x1, y0, y1) => new THREE.Path([[x0, -y0], [x0, -y1], [x1, -y1], [x1, -y0]].map(p => new THREE.Vector2(...p)));
-  const lay = (sh, m) => { const g = new THREE.ExtrudeGeometry(sh, { depth: h, bevelEnabled: false, curveSegments: 1 }); g.rotateX(-Math.PI / 2); g.translate(0, AT, 0); put(g, m, 'ceil'); };
+  let layZ = AT;   // отметка верха крыши, на которую сыплется галька (у области может быть своя z)
+  const lay = (sh, m) => { const g = new THREE.ExtrudeGeometry(sh, { depth: h, bevelEnabled: false, curveSegments: 1 }); g.rotateX(-Math.PI / 2); g.translate(0, layZ, 0); put(g, m, 'ceil'); };
   for (const ar of G.areas) {
-    CUR_BLD = ar.bld || 'house';
+    CUR_BLD = ar.bld || 'house'; layZ = ar.z ?? AT;
     const [x0, x1] = ar.x, [y0, y1] = ar.y;
     const edge = shape(x0, x1, y0, y1); edge.holes.push(hole(x0 + b, x1 - b, y0 + b, y1 - b)); lay(edge, 'pebbleDark');
     const field = shape(x0 + b, x1 - b, y0 + b, y1 - b);
@@ -1587,7 +1593,7 @@ if (D.gravel) {
     }
     lay(field, 'pebbleLight');
   }
-  for (const s of G.strips || []) { CUR_BLD = s.bld || 'house'; lay(shape(s.x[0], s.x[1], s.y[0], s.y[1]), s.m || 'pebbleDark'); }
+  for (const s of G.strips || []) { CUR_BLD = s.bld || 'house'; layZ = s.z ?? AT; lay(shape(s.x[0], s.x[1], s.y[0], s.y[1]), s.m || 'pebbleDark'); }
 }
 const finishOf = name => Object.entries(D.finish).find(([, names]) => names.includes(name))?.[0] ?? 'floor';
 for (const r of D.rooms) {
@@ -4579,630 +4585,357 @@ BUILD.tundra = o => {
   // ---------- сборка: один меш на материал, поворот +X → +Z, посадка на землю ----------
   return mergeByMat(r).map(([g, m, k]) => [g.rotateY(-Math.PI / 2).translate(0, Y0, 0), m, k]);
 };
-// ===================== Audi S8 (D5, рестайлинг 2022–2024): матовый Emerald Green, пакет «чёрная оптика» =====================
-// Строится с длиной по X (+X — нос, профиль в плоскости XY, ширина по Z), в конце поворачивается: +X → +Z (нос предмета).
-// Размеры: длина 5,19, ширина 1,95 (с зеркалами 2,13), высота 1,47, база 3,00, свесы 0,95/1,24, клиренс 0,12, колёса 265/35 R21.
-Object.assign(MAT, {
-  s8Body: std({ color: 0x4a5a3f, roughness: 0.6, metalness: 0 }),                 // матовая краска Emerald Green
-  s8Black: std({ color: 0x121315, roughness: 0.3, metalness: 0.3 }),              // глянцевый чёрный (оптика, рамки, стойки)
-  s8Trim: std({ color: 0x1b1c1e, roughness: 0.75, metalness: 0.05 }),            // чёрный пластик: днище, диффузор, сплиттер
-  s8Glass: new THREE.MeshStandardMaterial({ color: 0x0a0e13, roughness: 0.04, metalness: 0.55, transparent: true, opacity: 0.82 }),
-  s8RoofGlass: std({ color: 0x06080b, roughness: 0.04, metalness: 0.7 }),         // панорамная крыша
-  s8Rim: std({ color: 0x14151a, roughness: 0.28, metalness: 0.65, side: THREE.DoubleSide }),   // чёрные диски (обод виден изнутри сквозь спицы)
-  s8Red: std({ color: 0xc4121c, roughness: 0.4 }),                                // суппорты
-  s8Disc: std({ color: 0x8b8e93, roughness: 0.35, metalness: 0.9 }),              // тормозные диски
-  s8Seat: std({ color: 0x13151a, roughness: 0.95 }),                              // силуэты салона
-  s8Mirror: std({ color: 0xcfd6dc, roughness: 0.03, metalness: 0.95 }),
-  s8Exhaust: std({ color: 0x2b2d31, roughness: 0.25, metalness: 0.85 }),
-});
-// текстуры машины рисуются один раз при первой сборке
-const S8 = { tex: null };
-const s8Tex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
-// материал с рисунком; em — сила свечения (рисунок сам служит картой свечения: белое/красное светится, чёрное — нет)
-const s8Mat = (t, o = {}, em = 0) => std({ map: t, roughness: 0.5, ...(em ? { emissive: 0xffffff, emissiveMap: t, emissiveIntensity: em } : {}), ...o });
-// соты (решётка, воздухозаборники): шестиугольные ячейки с шагом step (px)
-const s8Honey = (g, x0, y0, x1, y1, step, cell = '#1d1e21', gap = '#040405') => {
-  g.fillStyle = gap; g.fillRect(x0, y0, x1 - x0, y1 - y0); g.fillStyle = cell;
-  const r = step * 0.42, h = step * 0.866;
-  for (let j = -1, row = 0; y0 + j * h < y1 + h; j++, row++) for (let i = -1; x0 + i * step < x1 + step; i++) {
-    const cx = x0 + i * step + (row % 2 ? step / 2 : 0), cy = y0 + j * h;
-    g.beginPath(); for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3; g[k ? 'lineTo' : 'moveTo'](cx + r * Math.cos(a), cy + r * Math.sin(a)); }
-    g.closePath(); g.fill();
-  }
-};
-const s8Rings = (g, cx, cy, r, lw, color) => { g.strokeStyle = color; g.lineWidth = lw; for (let k = -1.5; k <= 1.5; k++) { g.beginPath(); g.arc(cx + k * r * 1.22, cy, r, 0, Math.PI * 2); g.stroke(); } };
-function s8Textures() {
-  const T = {};
-  // борт кузова: UV = (x, y) профиля в метрах; холст покрывает x −2,7…2,7, y 0…1,6
-  const SX = 2048, SY = 640, px = x => (x + 2.7) / 5.4 * SX, py = y => (1 - y / 1.6) * SY;
-  T.side = s8Tex(SX, SY, g => {
-    g.fillStyle = '#4a5a3f'; g.fillRect(0, 0, SX, SY);
-    let gr = g.createLinearGradient(0, py(0.62), 0, py(0.2)); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.35)');
-    g.fillStyle = gr; g.fillRect(0, py(0.62), SX, SY);                                   // тень к порогу
-    gr = g.createLinearGradient(0, py(1.0), 0, py(0.935)); gr.addColorStop(0, 'rgba(255,255,255,0.10)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = gr; g.fillRect(0, py(1.0), SX, py(0.935) - py(1.0));                   // блик на плече
-    // под плечевой гранью (объёмная накладка на y 0,90–0,935) — мягкая тень
-    gr = g.createLinearGradient(0, py(0.9), 0, py(0.8)); gr.addColorStop(0, 'rgba(0,0,0,0.3)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = gr; g.fillRect(px(-2.45), py(0.9), px(2.3) - px(-2.45), py(0.8) - py(0.9));
-    // тень над колёсными арками (кромка арки)
-    for (const ax of [1.65, -1.35]) { const rg = g.createRadialGradient(px(ax), py(0.36), 0.47 / 5.4 * SX, px(ax), py(0.36), 0.56 / 5.4 * SX);
-      rg.addColorStop(0, 'rgba(0,0,0,0.45)'); rg.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = rg; g.fillRect(px(ax - 0.6), py(0.95), 1.2 / 5.4 * SX, py(0.2) - py(0.95)); }
-    // швы дверей
-    g.strokeStyle = 'rgba(10,14,8,0.85)'; g.lineWidth = 3; g.lineCap = 'round';
-    const seam = (x0, y0, x1, y1) => { g.beginPath(); g.moveTo(px(x0), py(y0)); g.lineTo(px(x1), py(y1)); g.stroke(); };
-    seam(0.74, 0.33, 0.84, 0.99); seam(-0.26, 0.33, -0.24, 0.99); seam(-1.14, 0.33, -1.12, 0.99);
-    seam(0.74, 0.33, -1.14, 0.33);                                                          // низ дверей
-    // утопленные ручки
-    g.fillStyle = 'rgba(8,10,6,0.75)'; for (const hx of [0.0, -0.86]) { g.beginPath(); g.roundRect(px(hx - 0.1), py(0.9), 0.2 / 5.4 * SX, 0.035 / 1.6 * SY, 6); g.fill(); }
-    g.fillStyle = 'rgba(255,255,255,0.12)'; for (const hx of [0.0, -0.86]) g.fillRect(px(hx - 0.1), py(0.9) - 2, 0.2 / 5.4 * SX, 2);
-    // порог: чёрная накладка
-    g.fillStyle = '#17191a'; g.fillRect(px(-1.0), py(0.33), px(1.3) - px(-1.0), py(0.22) - py(0.33));
-  });
-  T.side.repeat.set(1 / 5.4, 1 / 1.6); T.side.offset.set(2.7 / 5.4, 0);
-  // остекление кабины (боковины): чёрные стойки/рамки + тёмные стёкла; холст x −1,9…1,1, y 0,9…1,5
-  const WX = 1536, WY = 320, wx = x => (x + 1.9) / 3.0 * WX, wy = y => (1 - (y - 0.9) / 0.6) * WY;
-  T.win = s8Tex(WX, WY, g => {
-    g.fillStyle = '#0b0c0e'; g.fillRect(0, 0, WX, WY);
-    const pane = pts => { g.beginPath(); pts.forEach(([x, y], i) => g[i ? 'lineTo' : 'moveTo'](wx(x), wy(y))); g.closePath(); g.fill(); };
-    const gl = g.createLinearGradient(0, wy(1.42), 0, wy(1.03)); gl.addColorStop(0, '#2a3340'); gl.addColorStop(1, '#0e1218'); g.fillStyle = gl;
-    pane([[0.7, 1.03], [-0.22, 1.03], [-0.22, 1.4], [-0.14, 1.4]]);                      // передняя дверь (передняя кромка вдоль стойки A)
-    pane([[-0.3, 1.03], [-1.1, 1.03], [-1.16, 1.3], [-0.3, 1.4]]);                        // задняя дверь (верх по дуге крыши)
-    pane([[-1.22, 1.03], [-1.66, 1.03], [-1.22, 1.26]]);                                   // форточка в стойке C
-    g.strokeStyle = 'rgba(255,255,255,0.08)'; g.lineWidth = 2;
-    g.beginPath(); g.moveTo(wx(0.8), wy(1.025)); g.lineTo(wx(-1.7), wy(1.025)); g.stroke();  // нижняя окантовка
-  });
-  T.win.repeat.set(1 / 3.0, 1 / 0.6); T.win.offset.set(1.9 / 3.0, -0.9 / 0.6);
-  // решётка Singleframe: шестиугольник 1,25 × 0,42 м, чёрная рамка, соты, кольца, номер
-  T.grille = s8Tex(1024, 400, g => {
-    const k = 1024 / 1.25, ky = 400 / 0.42, X = z => 512 + z * k, Y = y => 200 - y * ky;
-    const hex = [[-0.5, 0.21], [0.5, 0.21], [0.625, 0.07], [0.58, -0.21], [-0.58, -0.21], [-0.625, 0.07]];
-    g.save(); g.beginPath(); hex.forEach(([z, y], i) => g[i ? 'lineTo' : 'moveTo'](X(z), Y(y))); g.closePath(); g.clip();
-    s8Honey(g, 0, 0, 1024, 400, 30, '#202124', '#030304');
-    g.lineWidth = 2; g.strokeStyle = '#2a2b2e';                                            // горизонтальные ламели поверх сот
-    for (let y = -0.19; y < 0.21; y += 0.05) { g.beginPath(); g.moveTo(0, Y(y)); g.lineTo(1024, Y(y)); g.stroke(); }
-    g.restore();
-    g.beginPath(); hex.forEach(([z, y], i) => g[i ? 'lineTo' : 'moveTo'](X(z), Y(y))); g.closePath();
-    g.lineWidth = 22; g.strokeStyle = '#0a0a0b'; g.stroke(); g.lineWidth = 4; g.strokeStyle = '#2d2e31'; g.stroke();
-    s8Rings(g, 512, Y(0.105), 0.05 * k, 7, '#3b3d41');
-    g.fillStyle = '#f2f2f0'; g.fillRect(X(-0.26), Y(-0.06), 0.52 * k, 0.11 * ky); g.fillStyle = '#1636a8'; g.fillRect(X(-0.26), Y(-0.06), 0.045 * k, 0.11 * ky);
-    g.fillStyle = '#111'; g.font = `bold ${0.075 * ky}px Arial`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('S8  D5', X(0.02), Y(-0.115));
-  });
-  T.mesh = s8Tex(256, 128, g => { s8Honey(g, 0, 0, 256, 128, 22, '#1c1d20', '#050506'); g.lineWidth = 14; g.strokeStyle = '#0a0a0b'; g.strokeRect(0, 0, 256, 128); });
-  // фара Matrix LED: чёрный корпус, белая полоса ДХО с «зубцами», три линзы; s = 1 правая, −1 левая (зеркально)
-  const head = s => s8Tex(512, 128, g => {
-    g.fillStyle = '#07080a'; g.fillRect(0, 0, 512, 128);
-    if (s < 0) { g.translate(512, 0); g.scale(-1, 1); }
-    g.fillStyle = '#15171b'; g.fillRect(14, 40, 484, 76);
-    for (const x of [60, 160, 260]) { g.fillStyle = '#23262c'; g.fillRect(x, 50, 70, 58); g.fillStyle = '#3a3e46'; g.beginPath(); g.arc(x + 35, 79, 20, 0, 7); g.fill();
-      g.fillStyle = '#8d939e'; g.beginPath(); g.arc(x + 29, 73, 6, 0, 7); g.fill(); }
-    g.fillStyle = '#ffffff'; g.beginPath(); g.moveTo(10, 14); g.lineTo(500, 14); g.lineTo(500, 30); g.lineTo(380, 30); g.lineTo(380, 24);
-    g.lineTo(10, 24); g.closePath(); g.fill();                                                 // ДХО
-    for (const x of [360, 400, 440]) g.fillRect(x, 34, 14, 10);                                // зубцы ДХО
-    g.fillRect(470, 40, 30, 72);                                                               // вертикальный штрих у края
-  });
-  T.headR = head(1); T.headL = head(-1);
-  // задний фонарь: сплошная красная полоса во всю ширину, OLED-сегменты, кольца посередине (ширина 1,86 × 0,08 м)
-  T.tail = s8Tex(2048, 96, g => {
-    g.fillStyle = '#0a0607'; g.fillRect(0, 0, 2048, 96);
-    const gr = g.createLinearGradient(0, 14, 0, 70); gr.addColorStop(0, '#ff2a2a'); gr.addColorStop(1, '#c80d16');
-    g.fillStyle = gr; g.fillRect(16, 14, 2016, 56);
-    g.fillStyle = '#5a0a0f'; for (let x = 100; x < 1948; x += 40) if (Math.abs(x - 1024) > 160) g.fillRect(x, 20, 3, 44);  // OLED-сегменты
-    g.fillStyle = '#7f1217'; g.fillRect(16, 40, 2016, 3);
-    s8Rings(g, 1024, 42, 15, 4, '#0b0b0c');
-    g.fillStyle = '#ffffff'; g.fillRect(360, 60, 60, 7); g.fillRect(1628, 60, 60, 7);        // фонари заднего хода
-  });
-  T.plate = s8Tex(512, 112, g => { g.fillStyle = '#f2f2f0'; g.fillRect(0, 0, 512, 112); g.fillStyle = '#1636a8'; g.fillRect(0, 0, 44, 112);
-    g.fillStyle = '#111'; g.font = 'bold 70px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('S8  D5', 280, 58); });
-  // колпачок ступицы с кольцами
-  T.hub = s8Tex(128, 128, g => { g.fillStyle = '#0c0d0f'; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill(); s8Rings(g, 64, 64, 15, 4, '#8a8d93'); });
-  // шина: u — по окружности (повтор 64 раза), v — по профилю токарной детали (10 точек: протектор — участок 4/9…5/9)
-  T.tire = s8Tex(128, 512, g => {
-    g.fillStyle = '#161616'; g.fillRect(0, 0, 128, 512);
-    const v0 = (1 - 5 / 9) * 512, v1 = (1 - 4 / 9) * 512;                                  // полоса протектора
-    g.fillStyle = '#242424'; g.fillRect(0, v0, 128, v1 - v0);
-    g.fillStyle = '#0a0a0a'; for (const f of [0.22, 0.5, 0.78]) g.fillRect(0, v0 + (v1 - v0) * f - 3, 128, 6);   // продольные канавки
-    g.fillRect(30, v0, 7, (v1 - v0) * 0.5); g.fillRect(94, v0 + (v1 - v0) * 0.5, 7, (v1 - v0) * 0.5);           // поперечные ламели
-    g.fillStyle = '#1f1f1f'; g.fillRect(0, v0 - 10, 128, 10); g.fillRect(0, v1, 128, 10);
-    g.fillStyle = '#2a2a2a'; g.fillRect(0, (1 - 7.5 / 9) * 512 - 2, 128, 4); g.fillRect(0, (1 - 1.5 / 9) * 512 - 2, 128, 4);   // надписи на боковине
-  });
-  T.tire.wrapS = THREE.RepeatWrapping; T.tire.repeat.set(64, 1);
-  Object.assign(MAT, {
-    s8Side: s8Mat(T.side, { roughness: 0.6 }), s8Win: s8Mat(T.win, { roughness: 0.1, metalness: 0.5 }),
-    s8Grille: s8Mat(T.grille, { roughness: 0.4, metalness: 0.3, transparent: true, alphaTest: 0.5 }),
-    s8Mesh: s8Mat(T.mesh, { roughness: 0.5 }),
-    s8HeadR: s8Mat(T.headR, { roughness: 0.15, metalness: 0.3 }, 0.9), s8HeadL: s8Mat(T.headL, { roughness: 0.15, metalness: 0.3 }, 0.9),
-    s8Tail: s8Mat(T.tail, { roughness: 0.2, metalness: 0.2 }, 0.9), s8Plate: s8Mat(T.plate, { roughness: 0.4 }),
-    s8Hub: s8Mat(T.hub, { roughness: 0.4, metalness: 0.5, transparent: true, alphaTest: 0.5 }), s8Tire: s8Mat(T.tire, { roughness: 0.92 }),
-  });
-  return T;
-}
-// сгладить нормали неиндексированной геометрии: усреднять только грани с углом < ~26° (шаг скругления), острые рёбра и плоские крышки не трогаются
-function s8Smooth(g, lim = 0.9) {
-  const p = g.attributes.position, n = g.attributes.normal, m = new Map(), key = i => `${p.getX(i).toFixed(4)}|${p.getY(i).toFixed(4)}|${p.getZ(i).toFixed(4)}`;
-  for (let i = 0; i < p.count; i += 3) { const nx = n.getX(i), ny = n.getY(i), nz = n.getZ(i); for (let k = 0; k < 3; k++) (m.get(key(i + k)) ?? m.set(key(i + k), []).get(key(i + k))).push([nx, ny, nz]); }
-  for (let i = 0; i < p.count; i++) {
-    const nx = n.getX(i), ny = n.getY(i), nz = n.getZ(i); let ax = 0, ay = 0, az = 0;
-    for (const [x, y, z] of m.get(key(i))) if (x * nx + y * ny + z * nz > lim) { ax += x; ay += y; az += z; }
-    const l = Math.hypot(ax, ay, az) || 1; n.setXYZ(i, ax / l, ay / l, az / l);
-  }
-}
-// разложить треугольники по материалам (pick(nx, ny, nz) → имя материала или null — выбросить); uv сохраняются
-function s8Split(g, pick) {
-  const p = g.attributes.position, n = g.attributes.normal, uv = g.attributes.uv, out = {};
-  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
-  for (let i = 0; i < p.count; i += 3) {
-    a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2);
-    const fn = b.sub(a).cross(c.sub(a)).normalize(), key = pick(fn.x, fn.y, fn.z); if (!key) continue;
-    const o = out[key] ??= { p: [], n: [], uv: [] };
-    for (let k = i; k < i + 3; k++) { o.p.push(p.getX(k), p.getY(k), p.getZ(k)); o.n.push(n.getX(k), n.getY(k), n.getZ(k)); o.uv.push(uv.getX(k), uv.getY(k)); }
-  }
-  return Object.entries(out).map(([key, o]) => { const q = new THREE.BufferGeometry();
-    q.setAttribute('position', new THREE.Float32BufferAttribute(o.p, 3)); q.setAttribute('normal', new THREE.Float32BufferAttribute(o.n, 3));
-    q.setAttribute('uv', new THREE.Float32BufferAttribute(o.uv, 2)); q.userData.ownUV = true; return [q, key]; });
-}
-// дробить рёбра длиннее maxLen у неиндексированной геометрии; общее ребро делится у обоих треугольников одинаково (без щелей).
-// Нужно перед изгибом плоских крышек вытяжки — иначе на огромных треугольниках крышки видны грани после изгиба
-function s8Refine(g, maxLen) {
-  let P = Array.from(g.attributes.position.array), U = Array.from(g.attributes.uv.array);
-  for (let it = 0; it < 8; it++) {
-    const n = P.length / 3, long = new Set(), key = a => `${P[a * 3].toFixed(5)}|${P[a * 3 + 1].toFixed(5)}|${P[a * 3 + 2].toFixed(5)}`;
-    const ek = (a, b) => { const ka = key(a), kb = key(b); return ka < kb ? ka + '#' + kb : kb + '#' + ka; };
-    let any = false;
-    for (let i = 0; i < n; i += 3) for (let e = 0; e < 3; e++) { const a = i + e, b = i + (e + 1) % 3;
-      if (Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]) > maxLen) { long.add(ek(a, b)); any = true; } }
-    if (!any) break;
-    const NP = [], NU = [], V = a => ({ p: [P[a * 3], P[a * 3 + 1], P[a * 3 + 2]], uv: [U[a * 2], U[a * 2 + 1]] });
-    const mid = (a, b) => ({ p: a.p.map((v, j) => (v + b.p[j]) / 2), uv: a.uv.map((v, j) => (v + b.uv[j]) / 2) });
-    const tri = (...vs) => { for (const v of vs) { NP.push(...v.p); NU.push(...v.uv); } };
-    for (let i = 0; i < n; i += 3) {
-      let v = [V(i), V(i + 1), V(i + 2)], f = [long.has(ek(i, i + 1)), long.has(ek(i + 1, i + 2)), long.has(ek(i + 2, i))];
-      const cnt = f.filter(Boolean).length;
-      if (!cnt) { tri(...v); continue; }
-      while (cnt === 1 ? !f[0] : cnt === 2 ? f[2] : false) { v = [v[1], v[2], v[0]]; f = [f[1], f[2], f[0]]; }   // длинное — ab (или ab и bc)
-      const [a, b, c] = v, mab = mid(a, b), mbc = mid(b, c), mca = mid(c, a);
-      if (cnt === 3) tri(a, mab, mca, mab, b, mbc, mca, mbc, c, mab, mbc, mca);
-      else if (cnt === 1) tri(a, mab, c, mab, b, c);
-      else tri(a, mab, mbc, mab, b, mbc, a, mbc, c);
-    }
-    P = NP; U = NU;
-  }
-  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); g.deleteAttribute('normal');
-}
-// вытяжка профиля на ширину width со скруглением рёбер bevel; warp(x, y, z) → новый z (сужение к концам, завал стёкол); refine — дробить рёбра до этой длины
-const s8Extrude = (shape, width, bevel, seg = 5, warp = null, refine = 0) => {
-  const g = new THREE.ExtrudeGeometry(shape, { depth: width - 2 * bevel, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelOffset: -bevel, bevelSegments: seg, curveSegments: 16 });
-  g.translate(0, 0, -(width - 2 * bevel) / 2);
-  if (refine) s8Refine(g, refine);
-  if (warp) { const p = g.attributes.position; for (let i = 0; i < p.count; i++) p.setZ(i, warp(p.getX(i), p.getY(i), p.getZ(i))); }
-  g.computeVertexNormals(); s8Smooth(g); return g;
-};
-BUILD.audiS8 = o => {
-  const T = S8.tex ??= s8Textures(), r = [], y0 = o.ground ?? TERR;   // машина на участке стоит на земле (TERR), в доме — ground: 0
-  const own = g => { g.userData.ownUV = true; return g; };
-  const AXF = 1.65, AXR = -1.35, RW = 0.36, ARCH = 0.36, HALF = 0.975, BEV = 0.06;   // оси колёс, радиус колеса, радиус арки (у борта + BEV → зазор до шины 6 см), полуширина
-  // ---- нижний кузов: профиль борта с арками, вытяжка на 1,95 со скруглением 6 см; пояс 1,0, капот с наклоном 0,96 → 0,83 ----
-  const s = new THREE.Shape();
-  s.moveTo(-2.42, 0.27); s.quadraticCurveTo(-2.58, 0.28, -2.6, 0.42); s.lineTo(-2.605, 0.86);         // задний бампер
-  s.quadraticCurveTo(-2.605, 1.0, -2.47, 1.02); s.lineTo(-2.1, 1.025); s.lineTo(-1.85, 1.01);        // короткая высокая крышка багажника с кромкой
-  s.lineTo(0.85, 1.0); s.quadraticCurveTo(1.1, 0.995, 1.35, 0.96); s.lineTo(2.3, 0.83);              // капот с наклоном вперёд (0,96 → 0,83)
-  s.quadraticCurveTo(2.6, 0.8, 2.61, 0.64); s.lineTo(2.61, 0.38); s.quadraticCurveTo(2.605, 0.26, 2.45, 0.26);   // нос, передний бампер
-  // арки: дуга r 0,41 вокруг оси, у стыка с низом — плавный переход (острые углы при скруглении рёбер дают вывернутые треугольники)
-  const dx = Math.sqrt(ARCH * ARCH - 0.1 * 0.1), a0 = Math.atan2(-0.1, dx), da = 0.42, F = 0.15;
-  const arch = ax => { const p = t => [ax + ARCH * Math.cos(t), RW + ARCH * Math.sin(t)];
-    s.lineTo(ax + dx + F, 0.26); s.quadraticCurveTo(ax + dx, 0.26, ...p(a0 + da)); s.absarc(ax, RW, ARCH, a0 + da, Math.PI - a0 - da, false);
-    s.quadraticCurveTo(ax - dx, 0.26, ax - dx - F, 0.26); };
-  arch(AXF); arch(AXR);                                                                            // передняя и задняя арки
-  s.lineTo(-2.42, 0.27);
-  const cl = (v, a, b) => Math.min(1, Math.max(0, (v - a) / b));
-  // в плане кузов сужается к бамперам (−11 % ширины) и скругляется у самых углов (ещё −8 % на последних 30 см, r ≈ 0,25)
-  const planW = x => (1 - 0.11 * cl(Math.abs(x), 0.9, 1.7) ** 2) * (1 - 0.08 * cl(Math.abs(x), 2.3, 0.3) ** 2);
-  const body = s8Extrude(s, 2 * HALF, BEV, 5, (x, y, z) => z * planW(x), 0.2);
-  r.push(...s8Split(body, (nx, ny, nz) => Math.abs(nz) > 0.9 ? 's8Side' : ny < -0.8 ? 's8Trim' : 's8Body'));
-  // плечевая линия — объёмная грань: полоса 3,5 см высотой, выступает на 1,2 см, отрезками по 10 см вдоль сужающегося борта
-  // на крыле грань спускается вместе с капотом (на 7 см ниже его кромки) и уходит к фаре
-  const shY = x => Math.min(0.9175, 0.93 - (x - 0.85) * 0.13);
-  for (const sgn of [-1, 1]) for (let x = -2.35; x < 2.2; x += 0.1) {
-    const z0 = HALF * planW(x), z1 = HALF * planW(x + 0.1), a = Math.atan2(z1 - z0, 0.1) * sgn, ya = shY(x), yb = shY(x + 0.1);
-    r.push([new THREE.BoxGeometry(0.104, 0.035, 0.03).rotateZ(Math.atan2(yb - ya, 0.1)).rotateY(-a).translate(x + 0.05, (ya + yb) / 2, sgn * ((z0 + z1) / 2 - 0.003)), 's8Body']);
-  }
-  // ---- кабина: лобовое — крыша — заднее; вытяжка 1,80 со скруглением 6 см, потом сужение к крыше (завал стёкол) ----
-  // купе-силуэт: лобовое ~27°, крыша — одна дуга с верхом 1,47 у x −0,5, заднее ~25° до линии багажника
-  const c = new THREE.Shape();
-  c.moveTo(0.95, 0.95); c.lineTo(0.95, 0.98); c.quadraticCurveTo(0.45, 1.25, 0.0, 1.43);                       // лобовое
-  c.quadraticCurveTo(-0.5, 1.51, -1.0, 1.42); c.quadraticCurveTo(-1.45, 1.21, -1.85, 1.01);                     // крыша, заднее
-  c.lineTo(-1.85, 0.95); c.lineTo(0.95, 0.95);
-  const cab = s8Extrude(c, 1.8, 0.06, 4, (x, y, z) => z * (1 - 0.47 * Math.max(0, y - 1.0)));   // к крыше уже: 1,80 → 1,40
-  // боковины → стёкла с рамками; скругления по бокам (стойки, кант крыши) → чёрный; верх → краска; наклонные спереди/сзади → стекло
-  r.push(...s8Split(cab, (nx, ny, nz) => ny < -0.8 ? null : Math.abs(nz) > 0.8 ? 's8Win' : Math.abs(nz) > 0.45 ? 's8Black' : ny > 0.945 ? 's8Body'
-    : Math.abs(nx) > 0.3 && ny > 0.25 ? 's8Glass' : 's8Black'));
-  // панорамная крыша: тонкие пластины по дуге крыши (кривая Безье крыши), на 7 мм выше кровли
-  const roofAt = t => [2 * t * (1 - t) * -0.5 + t * t * -1.0, (1 - t) ** 2 * 1.43 + 2 * t * (1 - t) * 1.51 + t * t * 1.42];
-  for (let i = 0; i < 9; i++) {
-    const [xa, ya] = roofAt(0.12 + i * 0.085), [xb, yb] = roofAt(0.12 + (i + 1) * 0.085), ang = Math.atan2(yb - ya, xb - xa);
-    r.push([new THREE.BoxGeometry(Math.hypot(xb - xa, yb - ya) + 0.004, 0.012, 1.1).rotateZ(ang).translate((xa + xb) / 2, (ya + yb) / 2 + 0.007, 0), 's8RoofGlass']);
-  }
-  // ---- салон: силуэты сидений, панель, руль (водитель слева: z < 0) ----
-  r.push([Bx(0.5, 0.2, 1.5, 0.55, 0.9, 0), 's8Seat']);
-  for (const z of [-0.38, 0.38]) r.push([Bx(0.12, 0.42, 0.5, -0.3, 0.93, z), 's8Seat'], [RB(0.11, 0.1, 0.26, 0.03, -0.36, 1.33, z), 's8Seat']);
-  r.push([Bx(0.12, 0.2, 1.3, -1.25, 0.93, 0), 's8Seat']); for (const z of [-0.4, 0, 0.4]) r.push([RB(0.1, 0.1, 0.24, 0.03, -1.27, 1.13, z), 's8Seat']);
-  r.push([new THREE.TorusGeometry(0.18, 0.018, 8, 24).rotateY(Math.PI / 2).rotateZ(-0.4).translate(0.25, 1.12, -0.38), 's8Seat']);
-  // ---- днище, пороги, внутренние арки ----
-  r.push([Bx(4.5, 0.15, 1.36, 0.1, 0.12, 0), 's8Trim']);
-  for (const ax of [AXF, AXR]) r.push([Bx(0.9, 0.62, 1.36, ax, 0.12, 0), 's8Trim']);              // ниши колёс (чёрный фон за колесом)
-  r.push([Bx(2.1, 0.12, 1.88, 0.15, 0.15, 0), 's8Trim']);                                          // пороги
-  r.push([Bx(0.32, 0.1, 1.58, 2.42, 0.17, 0), 's8Trim']);                                          // передний сплиттер
-  r.push([Bx(0.36, 0.17, 1.62, -2.42, 0.17, 0), 's8Trim']);                                        // задний диффузор
-  for (const z of [-0.74, -0.59, 0.59, 0.74]) {                                                    // 4 овальные насадки выхлопа
-    r.push([new THREE.CylinderGeometry(0.048, 0.048, 0.1, 20, 1, true).rotateZ(Math.PI / 2).scale(1, 0.85, 1.35).translate(-2.63, 0.285, z), 's8Exhaust']);
-    r.push([new THREE.CircleGeometry(0.046, 20).rotateY(-Math.PI / 2).scale(1, 0.85, 1.35).translate(-2.665, 0.285, z), 's8Black']);
-  }
-  // ---- передняя оптика и решётка ----
-  const plane = (w, h, mat, x, y, z, ry) => { const g = new THREE.PlaneGeometry(w, h).rotateY(ry).translate(x, y, z); return [own(g), mat]; };
-  r.push(plane(1.25, 0.42, 's8Grille', 2.62, 0.47, 0, Math.PI / 2));                               // Singleframe: низ у сплиттера, верх под фарами
-  for (const sgn of [-1, 1]) {
-    // фара: тонкий широкий корпус на кромке капота, наклонён назад по скату носа (26°) и повёрнут к скруглённому углу (10°)
-    const hl = g => g.rotateZ(0.45).rotateY(-sgn * 0.17).translate(2.555, 0.72, sgn * 0.58);
-    r.push([hl(new THREE.BoxGeometry(0.06, 0.1, 0.46)), 's8Black']);
-    // лицевая плоскость — на передней грани корпуса; у правой фары u растёт к середине машины, поэтому ей зеркальный рисунок
-    r.push([own(hl(new THREE.PlaneGeometry(0.46, 0.09).rotateY(Math.PI / 2).translate(0.032, 0, 0))), sgn > 0 ? 's8HeadL' : 's8HeadR']);
-    r.push(plane(0.16, 0.1, 's8Mesh', 2.618, 0.36, sgn * 0.68, Math.PI / 2));                      // боковые воздухозаборники
-  }
-  // ---- задняя оптика, номер, кромка-спойлер ----
-  r.push(plane(1.5, 0.08, 's8Tail', -2.613, 0.835, 0, -Math.PI / 2));
-  r.push(plane(0.52, 0.11, 's8Plate', -2.613, 0.6, 0, -Math.PI / 2));
-  r.push([new THREE.BoxGeometry(0.1, 0.028, 1.4).rotateZ(-0.12).translate(-2.47, 1.005, 0), 's8Body']);    // спойлер-кромка
-  // ---- зеркала в цвет кузова на чёрных ножках ----
-  for (const sgn of [-1, 1]) {
-    r.push([Bx(0.06, 0.04, 0.1, 0.74, 1.0, sgn * 0.93), 's8Black']);
-    r.push([RB(0.2, 0.1, 0.17, 0.035, 0.7, 1.02, sgn * 1.055), 's8Body']);
-    r.push([Bx(0.01, 0.08, 0.14, 0.598, 1.03, sgn * 1.055), 's8Mirror']);
-  }
-  // ---- колёса: шина (токарная деталь с протектором), чёрный диск 10 спиц (5 сдвоенных), тормозной диск, красный суппорт ----
-  const tirePts = [[0.262, -0.125], [0.31, -0.133], [0.345, -0.125], [0.358, -0.105], [0.36, -0.09], [0.36, 0.09], [0.358, 0.105], [0.345, 0.125], [0.31, 0.133], [0.262, 0.125]]
-    .map(([x, y]) => new THREE.Vector2(x, y));
-  const wheel = (sgn) => {   // колесо для правой стороны (+Z наружу); левое — поворот на 180° вокруг Y
-    const w = [];
-    w.push([own(new THREE.LatheGeometry(tirePts, 56).rotateX(Math.PI / 2)), 's8Tire']);
-    w.push([new THREE.CylinderGeometry(0.262, 0.262, 0.24, 40, 1, true).rotateX(Math.PI / 2), 's8Rim']);              // обод
-    w.push([new THREE.TorusGeometry(0.25, 0.013, 8, 40).translate(0, 0, 0.115), 's8Rim']);                              // наружная закраина
-    w.push([new THREE.CylinderGeometry(0.19, 0.19, 0.032, 40).rotateX(Math.PI / 2).translate(0, 0, -0.03), 's8Disc']);  // тормозной диск
-    w.push([new THREE.CylinderGeometry(0.09, 0.09, 0.05, 24).rotateX(Math.PI / 2).translate(0, 0, -0.02), 's8Trim']);   // ступица/колпак диска
-    w.push([new THREE.CircleGeometry(0.262, 40).translate(0, 0, -0.1), 's8Trim']);                                       // «задник» колеса
-    w.push([new THREE.TorusGeometry(0.155, 0.034, 8, 12, 1.1).rotateZ(sgn > 0 ? 2.1 : -0.05).translate(0, 0, -0.03), 's8Red']);   // суппорт сзади-сверху (с учётом поворота левого колеса)
-    w.push([new THREE.CylinderGeometry(0.065, 0.075, 0.05, 24).rotateX(Math.PI / 2).translate(0, 0, 0.045), 's8Rim']);  // ступица
-    w.push(plane(0.09, 0.09, 's8Hub', 0, 0, 0.0705, 0));
-    for (let i = 0; i < 5; i++) for (const d of [-1, 1]) {                                                               // 10 спиц, вогнутый «тарельчатый» диск
-      const th = i * Math.PI * 2 / 5 + d * 0.1;
-      w.push([new THREE.BoxGeometry(0.2, 0.026, 0.028).rotateY(-0.33).translate(0.158, 0, 0.078).rotateZ(th), 's8Rim']);
-    }
-    return w;
+// =====================================================================
+//  Легковые машины «по сечениям»: Audi S8 (D5, 2022) и Audi SQ8 (4M, 2024). Пропорции сняты с чертежей в четырёх проекциях
+//  (the-blueprints.com, Audi S8 2021 / SQ8 2024) и заводских размеров. Кузов — лофт: вдоль длины (x, нос +x) взяты станции,
+//  в каждой — половина контура от середины днища до середины крыши из 10 точек; одноимённые точки соседних станций соединяются.
+//  Высоты и полуширины контура — гладкие функции x по ключевым точкам (монотонный кубический сплайн), поэтому капот, крыша,
+//  сужение к бамперам и выштамповки получаются плавными. Материал полосы зависит от её места и x: стекло в зоне кабины,
+//  краска, тёмное днище и ниши колёс, чёрная панорамная крыша. Носовой и кормовой торцы — плоские «лица» с нарисованными
+//  решёткой, фарами, фонарями, диффузором. Колёса, зеркала, ручки, спойлер — отдельные детали.
+//  Местные оси при сборке: X — длина (+X нос), Y — вверх (0 — земля), Z — ширина; в конце +X → +Z (нос предмета), как у всей мебели.
+// =====================================================================
+// монотонный кубический сплайн по ключевым точкам [[x, v], …] — без «перелётов» между ключами
+const kf = pts => {
+  const p = pts.slice().sort((a, b) => a[0] - b[0]), n = p.length, d = [], m = new Array(n).fill(0);
+  for (let i = 0; i < n - 1; i++) d.push((p[i + 1][1] - p[i][1]) / (p[i + 1][0] - p[i][0]));
+  m[0] = d[0]; m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) { if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; } const a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b; if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; } }
+  return x => {
+    if (x <= p[0][0]) return p[0][1]; if (x >= p[n - 1][0]) return p[n - 1][1];
+    let i = 0; while (x > p[i + 1][0]) i++;
+    const h = p[i + 1][0] - p[i][0], t = (x - p[i][0]) / h, t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * p[i][1] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * p[i + 1][1] + (t3 - t2) * h * m[i + 1];
   };
-  for (const sgn of [-1, 1]) for (const ax of [AXF, AXR])
-    for (const [g, m] of wheel(sgn)) { if (sgn < 0) g.rotateY(Math.PI); r.push([g.translate(ax, RW, sgn * 0.815), m]); }
-  // ---- поворот: +X (нос) → +Z, посадка на землю ----
-  for (const [g] of r) g.rotateY(-Math.PI / 2).translate(0, y0, 0);
-  return mergeByMat(r);
 };
-// === CAR LAB BEGIN audiSQ8 ===
-// ============================ Audi SQ8 (4M, рестайлинг 2024) — процедурная модель ============================
-//  Размеры: длина 5,01 · ширина 2,00 (2,19 с зеркалами) · высота 1,70 · база 3,00 · свесы 0,97/1,04 · клиренс 0,21 ·
-//  шины 285/35 R23 (Ø 0,78, ширина 0,29) · колея 1,68. Цвет Sakhir Gold Metallic, пакет «чёрная оптика».
-//  Строим вдоль X (нос = +X, Y вверх, Z — ширина), в конце поворачиваем: нос → +Z (как у всей мебели движка).
-//  Низ колёс стоит на земле (TERR); o.ground — своя отметка (например 0 для гаража).
-{
-const K = { L: 5.01, W: 2.00, WB: 3.00, OF: 0.97, CL: 0.21, RW: 0.39, TW: 0.29, TRK: 1.68, R: 0.425 };   // R — радиус арки в глубине
-K.XN = K.L / 2; K.XF = K.XN - K.OF; K.XR = K.XF - K.WB; K.XT = -K.L / 2;   // нос, передняя ось, задняя ось, корма
-const PAINT = '#b89a63';
-// ---------- помощники рисования ----------
-const cvTex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
-const polyPath = (g, pts) => { g.beginPath(); pts.forEach(([x, y], i) => g[i ? 'lineTo' : 'moveTo'](x, y)); g.closePath(); };
-const honey = (g, x, y, w, h, s, bar, cell) => {   // соты: фон — перемычки, ячейки — тёмные шестиугольники радиуса s (px)
+const inR = (x, r) => r && x >= r[0] && x <= r[1];
+const mirrorZ = g => {   // зеркальная копия геометрии (z → −z) с правильным обходом граней
+  const q = g.clone(), p = q.attributes.position, nrm = q.attributes.normal;
+  for (let i = 0; i < p.count; i += 3) {   // геометрия без индекса: меняем местами 2-ю и 3-ю вершины треугольника
+    for (const att of [p, nrm, q.attributes.uv]) { if (!att) continue; const k = att.itemSize, a = [], b = [];
+      for (let c = 0; c < k; c++) { a.push(att.getComponent(i + 1, c)); b.push(att.getComponent(i + 2, c)); }
+      for (let c = 0; c < k; c++) { att.setComponent(i + 1, c, b[c]); att.setComponent(i + 2, c, a[c]); } }
+  }
+  for (let i = 0; i < p.count; i++) { p.setZ(i, -p.getZ(i)); if (nrm) nrm.setZ(i, -nrm.getZ(i)); }
+  return q;
+};
+// текстурный холст в метрах: draw(g, X(x), Y(y)) рисует в координатах машины
+// glow — второй холст (чёрный фон, светящиеся места цветом): карта свечения фар и фонарей
+const carCanvas = (w, h, x0, x1, y0, y1, draw, o = {}, glow = null) => {
+  const mk = fn => { const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d');
+    fn(g, x => (x - x0) / (x1 - x0) * w, y => (1 - (y - y0) / (y1 - y0)) * h, w / (x1 - x0));
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
+  const m = std({ map: mk(draw), ...o });
+  if (glow) { m.emissive = new THREE.Color(0xffffff); m.emissiveIntensity = 0.75; m.emissiveMap = mk((g, X, Y, s) => { g.fillStyle = '#000'; g.fillRect(0, 0, w, h); glow(g, X, Y, s); }); }
+  return m;
+};
+const hexGrid = (g, x, y, w, h, s, bar, cell) => {   // сотовая решётка: фон — перемычки, ячейки — тёмные шестиугольники
   g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); g.fillStyle = bar; g.fillRect(x, y, w, h); g.fillStyle = cell;
   const dy = s * 0.866; let col = 0;
   for (let cx = x; cx < x + w + s; cx += s * 1.5, col++) for (let cy = y - (col % 2 ? dy : 0); cy < y + h + s; cy += 2 * dy) {
-    g.beginPath(); for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3; g[k ? 'lineTo' : 'moveTo'](cx + s * 0.8 * Math.cos(a), cy + s * 0.8 * Math.sin(a)); }
-    g.closePath(); g.fill();
+    g.beginPath(); for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3; g[k ? 'lineTo' : 'moveTo'](cx + s * 0.82 * Math.cos(a), cy + s * 0.82 * Math.sin(a)); } g.closePath(); g.fill();
   }
   g.restore();
 };
-const rings = (g, cx, cy, r, lw, col) => { g.strokeStyle = col; g.lineWidth = lw; for (let i = 0; i < 4; i++) { g.beginPath(); g.arc(cx + (i - 1.5) * r * 1.55, cy, r, 0, Math.PI * 2); g.stroke(); } };
-// ---------- профиль крыши (реальный контур, по центру) ----------
-const roofPts = [[0.14, 1.655], [0.06, 1.685], [-0.05, 1.70], [-0.4, 1.71], [-0.9, 1.69], [-1.4, 1.64], [-1.8, 1.58], [-2.05, 1.53], [-2.12, 1.505]];
-const roofY = x => { for (let i = 1; i < roofPts.length; i++) { const [x0, y0] = roofPts[i - 1], [x1, y1] = roofPts[i]; if (x <= x0 && x >= x1) return y0 + (y1 - y0) * (x - x0) / (x1 - x0); }
-  return x > roofPts[0][0] ? roofPts[0][1] : roofPts[roofPts.length - 1][1]; };
-// ---------- текстуры ----------
-// борт кузова ниже подоконной линии: x −2,6…2,6 → u, y 0…1,9 → v. Плечо, тени над арками, порог, швы дверей, лючок
-const sideTex = cvTex(2048, 768, (g, W, H) => {
-  const X = x => (x + 2.6) / 5.2 * W, Y = y => (1 - y / 1.9) * H, S = W / 5.2;
-  g.fillStyle = PAINT; g.fillRect(0, 0, W, H);
-  let gr = g.createLinearGradient(0, Y(1.12), 0, Y(0.5));
-  gr.addColorStop(0, 'rgba(255,248,230,0.10)'); gr.addColorStop(0.16, 'rgba(255,248,230,0.26)'); gr.addColorStop(0.2, 'rgba(0,0,0,0.16)'); gr.addColorStop(0.45, 'rgba(0,0,0,0.05)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-  g.fillStyle = gr; g.fillRect(0, Y(1.12), W, Y(0.5) - Y(1.12));
-  for (const xa of [K.XF, K.XR]) {   // тень над аркой
-    const rg = g.createRadialGradient(X(xa), Y(0.39), 0.52 * S, X(xa), Y(0.39), 0.70 * S);
-    rg.addColorStop(0, 'rgba(0,0,0,0.32)'); rg.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = rg; g.fillRect(X(xa) - 0.75 * S, Y(1.12), 1.5 * S, Y(0.2) - Y(1.12));
-  }
-  g.fillStyle = '#17171a'; g.fillRect(0, Y(0.36), W, H - Y(0.36));                 // чёрный порог
-  g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, Y(0.40), W, Y(0.36) - Y(0.40));  // тень над порогом
-  g.strokeStyle = 'rgba(40,30,15,0.8)'; g.lineWidth = 3; g.lineCap = 'round';
-  const seam = (x, y0, y1) => { g.beginPath(); g.moveTo(X(x), Y(y0)); g.lineTo(X(x), Y(y1)); g.stroke(); };
-  seam(0.86, 0.37, 1.14); seam(-0.34, 0.37, 1.16); seam(-1.42, 0.86, 1.19);   // двери
-  seam(2.06, 0.40, 1.02); seam(-2.08, 0.46, 1.12);                             // крыло/бампер
-  g.beginPath(); g.moveTo(X(0.86), Y(0.37)); g.lineTo(X(-1.42), Y(0.37)); g.stroke();   // низ дверей
-  g.lineWidth = 2.5; g.strokeStyle = 'rgba(40,30,15,0.6)'; g.beginPath(); g.roundRect(X(-2.10), Y(1.02), 0.16 * S, 0.16 * S, 0.02 * S); g.stroke();   // лючок
-});
-// борт кабины: x −2,6…1,1 → u, y 1,05…1,75 → v. Чёрная окантовка, тёмные стёкла, стойки; за задней стойкой — краска
-const cabTex = cvTex(2048, 384, (g, W, H) => {
-  const X = x => (x + 2.6) / 3.7 * W, Y = y => (1 - (y - 1.05) / 0.7) * H;
-  g.fillStyle = PAINT; g.fillRect(0, 0, W, H);
-  g.fillStyle = '#101113'; g.fillRect(X(-2.02), 0, W - X(-2.02), H);
-  const glass = g.createLinearGradient(0, Y(1.66), 0, Y(1.13)); glass.addColorStop(0, '#2b323b'); glass.addColorStop(0.5, '#171c22'); glass.addColorStop(1, '#0c0f12');
-  const win = pts => { polyPath(g, pts.map(([x, y]) => [X(x), Y(y)])); g.fillStyle = glass; g.fill(); };
-  win([[0.80, 1.14], [-0.40, 1.14], [-0.40, 1.625], [0.17, 1.625]]);                                           // переднее
-  win([[-0.27, 1.14], [-1.50, 1.14], [-1.50, roofY(-1.5) - 0.075], [-0.27, roofY(-0.27) - 0.075]]);           // заднее
-  win([[-1.56, 1.14], [-1.98, 1.14], [-1.98, 1.20], [-1.90, roofY(-1.90) - 0.085], [-1.56, roofY(-1.56) - 0.075]]);   // форточка
-  g.fillStyle = '#0b0c0e'; g.fillRect(X(-0.40), Y(1.72), X(-0.27) - X(-0.40), Y(1.10) - Y(1.72));              // стойка B
-});
-// нос: z −0,9…0,9 → u, y 0,44…0,98 → v (прозрачный фон — краска кузова). Решётка Singleframe с сотами и кольцами, воздухозаборники
-const noseTex = cvTex(1024, 320, (g, W, H) => {
-  const X = z => (z + 0.82) / 1.64 * W, Y = y => (1 - (y - 0.44) / 0.54) * H, S = W / 1.64, P = pts => pts.map(([z, y]) => [X(z), Y(y)]);
-  g.clearRect(0, 0, W, H);
-  const oct = (hw, hh, c, cy) => [[-hw + c, cy + hh], [hw - c, cy + hh], [hw, cy + hh - c], [hw, cy - hh + c * 0.5], [hw - c * 0.5, cy - hh], [-hw + c * 0.5, cy - hh], [-hw, cy - hh + c * 0.5], [-hw, cy + hh - c]];
-  polyPath(g, P(oct(0.64, 0.25, 0.14, 0.725))); g.fillStyle = '#0d0e10'; g.fill();
-  g.save(); polyPath(g, P(oct(0.61, 0.22, 0.12, 0.725))); g.clip(); honey(g, X(-0.66), Y(0.98), 1.32 * S, 0.54 * S, 0.03 * S, '#2b2c30', '#090a0c'); g.restore();
-  rings(g, X(0), Y(0.83), 0.06 * S, 0.012 * S, '#3d3e42');
-  for (const s of [-1, 1]) {   // боковые воздухозаборники (уходят на скруглённые углы бампера)
-    const q = [[s * 0.60, 0.46], [s * 0.86, 0.46], [s * 0.86, 0.66], [s * 0.76, 0.76], [s * 0.62, 0.76]];
-    polyPath(g, P(q)); g.fillStyle = '#0d0e10'; g.fill();
-    g.save(); polyPath(g, P(q.map(([z, y]) => [z - s * 0.02 * Math.sign(z - s * 0.73), y + (y > 0.6 ? -0.02 : 0.02)]))); g.clip();
-    honey(g, X(Math.min(s * 0.6, s * 0.86)), Y(0.78), 0.28 * S, 0.34 * S, 0.028 * S, '#2b2c30', '#090a0c'); g.restore();
-  }
-});
-// корма: z −0,9…0,9 → u, y 0,44…0,98 → v. Шов бампера, кольца, надпись
-const tailTex = cvTex(1024, 320, (g, W, H) => {
-  const X = z => (z + 0.82) / 1.64 * W, Y = y => (1 - (y - 0.44) / 0.54) * H, S = W / 1.64;
-  g.clearRect(0, 0, W, H);
-  g.fillStyle = '#1c1c1e'; g.fillRect(0, Y(0.52), W, H - Y(0.52));                 // низ бампера
-  g.strokeStyle = 'rgba(40,30,15,0.8)'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, Y(0.70)); g.lineTo(W, Y(0.70)); g.stroke();
-  rings(g, X(0), Y(0.93), 0.045 * S, 0.009 * S, '#2a2a2d');
-  g.fillStyle = '#2a2a2d'; g.font = `bold ${Math.round(0.055 * S)}px Arial`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('SQ8', X(0.62), Y(0.93));
-});
-// фара: тёмный корпус, две линзы, белая полоса дневного света (цвет + карта свечения)
-const lampDraw = em => (g, W, H) => {
-  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
-  if (!em) {
-    const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#171b22'); gr.addColorStop(1, '#05060a'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
-    for (const u of [0.30, 0.56]) {
-      g.beginPath(); g.arc(W * u, H * 0.6, H * 0.30, 0, 6.3); g.fillStyle = '#20272f'; g.fill();
-      g.beginPath(); g.arc(W * u, H * 0.6, H * 0.21, 0, 6.3); g.fillStyle = '#3b4858'; g.fill();
-      g.beginPath(); g.arc(W * u, H * 0.6, H * 0.11, 0, 6.3); g.fillStyle = '#0a0c12'; g.fill();
+const audiRings = (g, cx, cy, r, lw, col) => { g.strokeStyle = col; g.lineWidth = lw; for (let i = 0; i < 4; i++) { g.beginPath(); g.arc(cx + (i - 1.5) * r * 1.6, cy, r, 0, 6.29); g.stroke(); } };
+// ---------- корпус ----------
+// P: { L, xs — станции, f — функции x (yFloor, zWell, zSill, yCrease, zCrease, yShoulder, zShoulder, yWaist, zWaist, yGlassTop, zGlassTop,
+//      zRoofEdge, yRoof), arches [{x, r, yc}], glassX, wsX, rwX, roofDarkX, mats {body, side, glass, band, under, pillar, dark} }
+function carHull(P) {
+  const S = P.xs.map(x => {
+    const f = k => P.f[k](x);
+    let yLow = f('yFloor') + 0.002;
+    for (const a of P.arches) { const dx = x - a.x; if (Math.abs(dx) < a.r) yLow = Math.max(yLow, a.yc + Math.sqrt(a.r * a.r - dx * dx)); }
+    const yCr = Math.max(f('yCrease'), yLow + 0.03), ySh = Math.max(f('yShoulder'), yCr + 0.03), yW = Math.max(f('yWaist'), ySh + 0.02);
+    const yGT = Math.max(f('yGlassTop'), yW + 0.01), yR = Math.max(f('yRoof'), yGT + 0.005);
+    return { x, pts: [[0, f('yFloor')], [f('zWell'), f('yFloor')], [f('zWell'), yLow], [f('zSill'), yLow], [f('zCrease'), yCr], [f('zShoulder'), ySh],
+      [f('zWaist'), yW], [f('zGlassTop'), yGT], [f('zRoofEdge'), yR - 0.004], [0, yR]] };
+  });
+  // материал полосы i (между точками i и i+1) на станции x
+  const matOf = (i, x) => {
+    if (i <= 2) return P.mats.under;
+    if (i <= 5) return P.mats.side;
+    if (i === 6) return inR(x, P.glassX) ? P.mats.band : inR(x, P.wsX) || inR(x, P.rwX) ? P.mats.pillar : P.mats.body;
+    if (inR(x, P.wsX) || inR(x, P.rwX)) return P.mats.glass;
+    if (i === 8 && inR(x, P.roofDarkX)) return P.mats.dark;
+    return P.mats.body;
+  };
+  // группы сглаживания: внутри группы нормали общие, между группами — ребро
+  const groups = [[0, 2], [3, 3], [4, 4], [5, 5], [6, 6], [7, 8]], out = [];
+  const sb = P.sideBox, uvOf = (i, x, y, z) => i === 6 ? [(x - P.glassX[0]) / (P.glassX[1] - P.glassX[0]), 0] : i >= 7 ? [x, z] : [(x - sb.x0) / (sb.x1 - sb.x0), (y - sb.y0) / (sb.y1 - sb.y0)];
+  for (const [i0, i1] of groups) {
+    const rows = i1 - i0 + 2, pos = [], idx = [];
+    S.forEach((s, j) => { for (let i = i0; i <= i1 + 1; i++) { const [z, y] = s.pts[i]; pos.push(s.x, y, z); } });
+    for (let j = 0; j < S.length - 1; j++) for (let i = 0; i < rows - 1; i++) {
+      const a = j * rows + i, b = a + rows; idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    const nrm = g.attributes.normal, byMat = {};
+    for (let j = 0; j < S.length - 1; j++) for (let i = 0; i < rows - 1; i++) {
+      const strip = i0 + i, m = matOf(strip, (S[j].x + S[j + 1].x) / 2), a = j * rows + i, b = a + rows;
+      const acc = byMat[m] ??= { p: [], n: [], uv: [] };
+      for (const v of [a, b, a + 1, a + 1, b, b + 1]) {
+        const x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2];
+        acc.p.push(x, y, z); acc.n.push(nrm.getX(v), nrm.getY(v), nrm.getZ(v));
+        const yv = strip === 6 ? (v === a + 1 || v === b + 1 ? 1 : 0) : 0, u = uvOf(strip, x, y, z); acc.uv.push(u[0], strip === 6 ? yv : u[1]);
+      }
+    }
+    for (const [m, acc] of Object.entries(byMat)) {
+      const q = new THREE.BufferGeometry();
+      q.setAttribute('position', new THREE.Float32BufferAttribute(acc.p, 3)); q.setAttribute('normal', new THREE.Float32BufferAttribute(acc.n, 3)); q.setAttribute('uv', new THREE.Float32BufferAttribute(acc.uv, 2));
+      out.push([q, m, true], [mirrorZ(q), m, true]);
     }
   }
-  g.fillStyle = em ? '#dfe9ff' : '#f4f7ff';
-  g.fillRect(W * 0.04, H * 0.13, W * 0.92, H * 0.09); g.fillRect(W * 0.90, H * 0.13, W * 0.06, H * 0.6); g.fillRect(W * 0.04, H * 0.13, W * 0.05, H * 0.42);
-};
-const lampTex = cvTex(512, 112, lampDraw(false)), lampEm = cvTex(512, 112, lampDraw(true));
-// фонарь: тёмно-красное стекло с тремя светящимися штрихами (цвет + карта свечения)
-const tlDraw = em => (g, W, H) => {
-  g.fillStyle = em ? '#000' : '#1a0507'; g.fillRect(0, 0, W, H);
-  if (!em) { const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#2a0a0e'); gr.addColorStop(1, '#0d0203'); g.fillStyle = gr; g.fillRect(0, 0, W, H); }
-  g.fillStyle = em ? '#ff3a2a' : '#c81e1e';
-  for (const v of [0.22, 0.62, 0.78]) g.fillRect(W * 0.08, H * v, W * 0.84, H * 0.08);
-};
-const tlTex = cvTex(420, 100, tlDraw(false)), tlEm = cvTex(420, 100, tlDraw(true));
-// номерной знак
-const plateTex = cvTex(520, 110, (g, W, H) => {
-  g.fillStyle = '#f5f5f2'; g.fillRect(0, 0, W, H); g.fillStyle = '#1f3f9c'; g.fillRect(0, 0, 44, H);
-  g.fillStyle = '#111'; g.font = 'bold 70px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('SQ8 · 2024', W / 2 + 22, H / 2 + 4);
-  g.strokeStyle = '#9a9a9a'; g.lineWidth = 4; g.strokeRect(2, 2, W - 4, H - 4);
-});
-// шина: один период протектора по ширине (повтор 40 раз по кругу), v — вдоль профиля (протектор v 0,4–0,6)
-const tireTex = cvTex(128, 512, (g, W, H) => {
-  g.fillStyle = '#1b1b1b'; g.fillRect(0, 0, W, H);
-  const t0 = H * 0.4, t1 = H * 0.6, th = t1 - t0;
-  g.fillStyle = '#242424'; g.fillRect(0, t0, W, th);
-  g.fillStyle = '#0d0d0d'; for (const f of [0.2, 0.5, 0.8]) g.fillRect(0, t0 + th * f - 3, W, 6);   // продольные канавки
-  g.fillRect(W * 0.44, t0, 9, th);                                                                  // поперечная канавка
-  g.beginPath(); g.moveTo(W * 0.1, t0 + th * 0.22); g.lineTo(W * 0.36, t0 + th * 0.48); g.lineTo(W * 0.1, t0 + th * 0.48); g.closePath(); g.fill();   // косые ламели
-  g.beginPath(); g.moveTo(W * 0.62, t0 + th * 0.52); g.lineTo(W * 0.9, t0 + th * 0.78); g.lineTo(W * 0.62, t0 + th * 0.78); g.closePath(); g.fill();
-  g.fillStyle = '#262626'; g.fillRect(0, H * 0.05, W, 3); g.fillRect(0, H * 0.95 - 3, W, 3);                // кольцо у обода
-  g.fillStyle = '#2b2b2b'; g.fillRect(W * 0.15, H * 0.2, W * 0.7, 7); g.fillRect(W * 0.15, H * 0.8 - 7, W * 0.7, 7);   // «надпись» на боковине
-});
-tireTex.wrapS = THREE.RepeatWrapping; tireTex.repeat.set(40, 1);
-// ---------- материалы ----------
-Object.assign(MAT, {
-  sq8Paint: std({ color: 0xb89a63, roughness: 0.3, metalness: 0.35 }),          // краска Sakhir Gold
-  sq8Side: std({ map: sideTex, roughness: 0.3, metalness: 0.35 }),              // борт с швами дверей
-  sq8Cab: std({ map: cabTex, roughness: 0.2, metalness: 0.45 }),                // борт кабины (стёкла + стойки)
-  sq8Glass: std({ color: 0x0e1317, roughness: 0.05, metalness: 0.75 }),         // лобовое и заднее стекло
-  sq8Roof: std({ color: 0x08090b, roughness: 0.06, metalness: 0.6 }),           // панорамная крыша
-  sq8Black: std({ color: 0x15161a, roughness: 0.35, metalness: 0.4 }),          // чёрный глянец (окантовка, рейлинги, корпуса фар)
-  sq8Matt: std({ color: 0x1d1e21, roughness: 0.8, metalness: 0.1 }),            // чёрный мат (низ бамперов, диффузор)
-  sq8Under: std({ color: 0x13141a, roughness: 0.95, side: THREE.DoubleSide }),  // днище и ниши колёс
-  sq8Nose: std({ map: noseTex, transparent: true, roughness: 0.55, metalness: 0.2 }),
-  sq8Tail: std({ map: tailTex, transparent: true, roughness: 0.55, metalness: 0.2 }),
-  sq8Lamp: std({ map: lampTex, emissiveMap: lampEm, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.12, metalness: 0.5 }),
-  sq8TailLamp: std({ map: tlTex, emissiveMap: tlEm, emissive: 0xff2a1a, emissiveIntensity: 0.8, roughness: 0.12, metalness: 0.4 }),
-  sq8Red: std({ color: 0x5a0a0c, emissive: 0xff2016, emissiveIntensity: 1.6, roughness: 0.3 }),   // световая полоса кормы
-  sq8Caliper: std({ color: 0xc41e1a, roughness: 0.45 }),
-  sq8Tire: std({ map: tireTex, roughness: 0.92 }),
-  sq8Rim: std({ color: 0x161618, roughness: 0.28, metalness: 0.6 }),
-  sq8RimIn: std({ color: 0x0b0b0d, roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide }),
-  sq8Disc: std({ color: 0x8c8f93, roughness: 0.35, metalness: 0.85 }),
-  sq8Exh: std({ color: 0x3b3d42, roughness: 0.3, metalness: 0.9 }),
-  sq8Mirror: std({ color: 0xaebdc8, roughness: 0.03, metalness: 1 }),
-  sq8Plate: std({ map: plateTex, roughness: 0.4 }), sq8PlateBody: std({ color: 0xf0f0ee, roughness: 0.4 }),
-});
-// ---------- геометрические помощники ----------
-const V2 = pts => pts.map(([x, y]) => new THREE.Vector2(x, y));
-const arc = (cx, cy, r, a0, a1, n) => { const p = []; for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; p.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); } return p; };
-const inset = (pts, d) => {   // сдвиг контура (обход против часовой) внутрь на d: бевел ExtrudeGeometry раздувает контур на bevelSize
-  const n = pts.length, out = [];
-  for (let i = 0; i < n; i++) {
-    const [px, py] = pts[(i + n - 1) % n], [cx, cy] = pts[i], [nx, ny] = pts[(i + 1) % n];
-    const l1 = Math.hypot(cx - px, cy - py) || 1, l2 = Math.hypot(nx - cx, ny - cy) || 1;
-    const n1x = (cy - py) / l1, n1y = -(cx - px) / l1, n2x = (ny - cy) / l2, n2y = -(nx - cx) / l2;   // внешние нормали соседних рёбер
-    const k = d / Math.max(0.35, 1 + n1x * n2x + n1y * n2y);
-    out.push([cx - (n1x + n2x) * k, cy - (n1y + n2y) * k]);
-  }
-  return out;
-};
-const extrude = (pts, bs, bt, width) => {   // вытянуть профиль (XY) на ширину по Z со скруглёнными рёбрами, центр по Z
-  const d = width - 2 * bt;
-  return new THREE.ExtrudeGeometry(new THREE.Shape(V2(inset(pts, bs))), { depth: d, bevelEnabled: true, bevelThickness: bt, bevelSize: bs, bevelOffset: 0, bevelSegments: 6, curveSegments: 1 }).translate(0, 0, -d / 2);
-};
-const smooth = pos => {   // сварить совпадающие вершины → гладкие нормали (бевел без «граней»)
-  const map = new Map(), idx = [], vp = [];
-  for (let i = 0; i < pos.length; i += 3) {
-    const key = `${Math.round(pos[i] * 1e4)},${Math.round(pos[i + 1] * 1e4)},${Math.round(pos[i + 2] * 1e4)}`;
-    let j = map.get(key); if (j === undefined) { j = vp.length / 3; map.set(key, j); vp.push(pos[i], pos[i + 1], pos[i + 2]); } idx.push(j);
-  }
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(vp, 3)); g.setIndex(idx); g.computeVertexNormals();
-  return g.toNonIndexed();
-};
-const split = (geo, classify) => {   // разложить треугольники по корзинам: classify(нормаль грани, центр x, центр y) → имя
-  const p = geo.attributes.position, b = {}, A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(), N = new THREE.Vector3(), T = new THREE.Vector3();
-  for (let i = 0; i < p.count; i += 3) {
-    A.fromBufferAttribute(p, i); B.fromBufferAttribute(p, i + 1); C.fromBufferAttribute(p, i + 2);
-    N.copy(C).sub(B); T.copy(A).sub(B); N.cross(T).normalize();
-    (b[classify(N, (A.x + B.x + C.x) / 3, (A.y + B.y + C.y) / 3)] ??= []).push(A.x, A.y, A.z, B.x, B.y, B.z, C.x, C.y, C.z);
-  }
-  const out = {}; for (const k in b) out[k] = smooth(b[k]); return out;
-};
-const uvXY = (g, x0, lx, y0, ly) => {   // UV из координат профиля: u = (x−x0)/lx, v = (y−y0)/ly
-  if (!g) return g;
-  const p = g.attributes.position, uv = new Float32Array(p.count * 2);
-  for (let i = 0; i < p.count; i++) { uv[2 * i] = (p.getX(i) - x0) / lx; uv[2 * i + 1] = (p.getY(i) - y0) / ly; }
-  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.userData.ownUV = true; return g;
-};
-const flipU = g => { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i)); return g; };
-const own = g => { g.userData.ownUV = true; return g; };
-const subdiv = (g, thr) => {   // дробит крупные треугольники по длинным рёбрам (> thr), иначе сужение в плане даёт «складки» на бортах
-  const p = g.attributes.position, stack = [], out = [], t2 = thr * thr;
-  for (let i = 0; i < p.count; i += 3) stack.push([[p.getX(i), p.getY(i), p.getZ(i)], [p.getX(i + 1), p.getY(i + 1), p.getZ(i + 1)], [p.getX(i + 2), p.getY(i + 2), p.getZ(i + 2)]]);
-  const d2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2, mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
-  while (stack.length) {
-    const [a, b, c] = stack.pop(), lab = d2(a, b) > t2, lbc = d2(b, c) > t2, lca = d2(c, a) > t2, n = lab + lbc + lca;
-    if (!n) { out.push(...a, ...b, ...c); continue; }
-    if (n === 3) { const p = mid(a, b), q = mid(b, c), r = mid(c, a); stack.push([a, p, r], [p, b, q], [r, q, c], [p, q, r]); continue; }
-    if (n === 1) { if (lab) stack.push([a, mid(a, b), c], [mid(a, b), b, c]); else if (lbc) stack.push([a, b, mid(b, c)], [a, mid(b, c), c]); else stack.push([a, b, mid(c, a)], [mid(c, a), b, c]); continue; }
-    // два длинных ребра: отрезаем угол между ними, оставшийся четырёхугольник — по диагонали
-    if (!lca) { const p = mid(a, b), q = mid(b, c); stack.push([p, b, q], [a, p, q], [a, q, c]); }
-    else if (!lab) { const q = mid(b, c), r = mid(c, a); stack.push([r, q, c], [a, b, q], [a, q, r]); }
-    else { const p = mid(a, b), r = mid(c, a); stack.push([a, p, r], [p, b, c], [p, c, r]); }
-  }
-  const o = new THREE.BufferGeometry(); o.setAttribute('position', new THREE.Float32BufferAttribute(out, 3)); return o;
-};
-const taper = x => {   // скругление в плане: к носу и корме кузов сужается по четверти эллипса (нос −14 %, корма −10 %)
-  const e = x > 2.0 ? (x - 2.0) / 0.505 : x < -2.0 ? (-2.0 - x) / 0.505 : 0;
-  return 1 - (x > 0 ? 0.14 : 0.10) * (1 - Math.sqrt(Math.max(0, 1 - e * e)));
-};
-const shapeZ = g => {   // сужение в плане (борта остаются плоскими: любая волнистость узких треугольников даёт пунктир самозатенения)
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) p.setZ(i, p.getZ(i) * taper(p.getX(i)));
-  return g;
-};
-const wrapDecal = (mesh, dir, y0, y1, z0, z1, nz, ny, off = 0.005) => {   // «наклейка» по поверхности кузова: сетка точек, найденных лучами вдоль ±X
-  const rc = new THREE.Raycaster(), pos = [], uv = [], idx = [], o = new THREE.Vector3(), d = new THREE.Vector3(-dir, 0, 0);
-  for (let j = 0; j <= ny; j++) for (let i = 0; i <= nz; i++) {
-    const y = y0 + (y1 - y0) * j / ny, z = z0 + (z1 - z0) * i / nz;
-    o.set(dir * 4, y, z); rc.set(o, d); const h = rc.intersectObject(mesh, false)[0];
-    if (h) pos.push(h.point.x + h.face.normal.x * off, h.point.y + h.face.normal.y * off, h.point.z + h.face.normal.z * off); else pos.push(dir * 2.2, y, z);
-    uv.push(i / nz, j / ny);
-  }
-  const same = Math.sign(z1 - z0) === dir;
-  for (let j = 0; j < ny; j++) for (let i = 0; i < nz; i++) { const a = j * (nz + 1) + i, b = a + 1, c = a + nz + 1, e = c + 1; if (same) idx.push(a, c, b, b, c, e); else idx.push(a, b, c, b, e, c); }
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  g.setIndex(idx); g.computeVertexNormals(); g.userData.ownUV = true; return g;
-};
-// ---------- сборка ----------
-BUILD.audiSQ8 = o => {
-  const G = o.ground ?? TERR, r = [], { XN, XF, XR, XT, R, CL } = K, add = (g, m) => { if (g) r.push([g, m]); };
-  // --- кузов ниже подоконной линии: профиль сбоку (против часовой, от кормы по низу), арки — дуги ---
-  const dxA = Math.sqrt(R * R - (0.39 - CL) ** 2), aA = Math.atan2(CL - 0.39, -dxA), aB = Math.atan2(CL - 0.39, dxA) - 2 * Math.PI;
-  const body = [[XT + 0.06, CL], ...arc(XR, 0.39, R, aA, aB, 26), ...arc(XF, 0.39, R, aA, aB, 26),
-    [2.28, CL], [2.42, 0.26], [2.49, 0.36], [XN, 0.50], [XN - 0.015, 0.64], [XN - 0.04, 0.84], [XN - 0.03, 0.96], [XN - 0.01, 1.0],   // подбородок, бампер, решётка, губа капота
-    [XN - 0.03, 1.04], [XN - 0.08, 1.065], [XN - 0.16, 1.078],
-    [1.9, 1.09], [1.3, 1.115], [0.95, 1.13], [0.4, 1.14], [-0.4, 1.155], [-1.2, 1.175], [-1.7, 1.20], [-2.1, 1.225], [-2.36, 1.23],   // капот → плечи (растут к корме)
-    [-2.44, 1.21], [-2.49, 1.16], [XT, 1.08], [XT, 0.62], [XT + 0.015, 0.45], [XT + 0.045, 0.30]];                                      // крышка багажника, бампер
-  const bodyG = shapeZ(subdiv(extrude(body, 0.08, 0.12, K.W), 0.3));
-  const bodyMesh = new THREE.Mesh(bodyG);   // для проецирования «наклеек» лучами
-  const bp = split(bodyG, (n, cx, cy) => {
-    if (Math.abs(n.z) > 0.85) return 'side';
-    for (const xa of [XF, XR]) { const dx = cx - xa, dy = cy - 0.39, d = Math.hypot(dx, dy); if (d < 0.62 && cy > 0.2 && -(dx * n.x + dy * n.y) > 0.3 * d) return 'under'; }   // внутренность арки
-    if (n.y < -0.8) return 'under';
-    return cy < 0.46 ? 'matt' : 'paint';
-  });
-  add(uvXY(bp.side, -2.6, 5.2, 0, 1.9), 'sq8Side'); add(bp.paint, 'sq8Paint'); add(bp.under, 'sq8Under'); add(bp.matt, 'sq8Matt');
-  // --- кабина: лобовое — крыша — заднее стекло; сужается кверху (наклон стоек) ---
-  const cab = [[1.00, 1.06], [0.98, 1.12], ...roofPts, [-2.40, 1.27], [-2.44, 1.21], [-2.44, 1.06]];
-  const cabG = subdiv(extrude(cab, 0.06, 0.08, 1.92), 0.3);
-  { const p = cabG.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setZ(i, p.getZ(i) * (1 - 0.22 * Math.min(1, Math.max(0, (y - 1.12) / 0.56)))); } }
-  shapeZ(cabG);
-  const cp = split(cabG, (n, cx, cy) => Math.abs(n.z) > 0.85 ? 'side' : n.y > 0.93 ? 'roof' : Math.abs(n.z) > 0.3 ? (cx < -2.02 ? 'paint' : 'black') : cy < 1.13 ? 'black' : 'glass');
-  add(uvXY(cp.side, -2.6, 3.7, 1.05, 0.7), 'sq8Cab'); add(cp.roof, 'sq8Roof'); add(cp.black, 'sq8Black'); add(cp.paint, 'sq8Paint'); add(cp.glass, 'sq8Glass');
-  // --- ниши колёс (полуцилиндр + внутренняя стенка), днище, балки подвески ---
-  for (const xa of [XF, XR]) {
-    add(new THREE.CylinderGeometry(0.465, 0.465, 1.94, 32, 1, true, Math.PI / 2, Math.PI).rotateX(Math.PI / 2).translate(xa, 0.39, 0), 'sq8Under');
-    for (const s of [-1, 1]) add(Bx(1.0, 0.45, 0.03, xa, CL, s * 0.62), 'sq8Under');
-    add(Bx(0.16, 0.10, 1.30, xa, CL + 0.04, 0), 'sq8Under');
-  }
-  // --- колёса: шина (lathe с протектором), чёрный диск — 5 пар тонких спиц, тормозной диск, красный суппорт ---
-  const wheel = (xa, s) => {
-    const W = [], prof = [[0.285, -0.145], [0.33, -0.145], [0.365, -0.135], [0.383, -0.12], [0.39, -0.105], [0.392, 0], [0.39, 0.105], [0.383, 0.12], [0.365, 0.135], [0.33, 0.145], [0.285, 0.145]];
-    W.push([own(new THREE.LatheGeometry(V2(prof), 48)), 'sq8Tire']);
-    W.push([new THREE.CylinderGeometry(0.285, 0.285, 0.25, 40, 1, true), 'sq8RimIn']);                               // бочка обода
-    W.push([new THREE.TorusGeometry(0.274, 0.014, 8, 48).rotateX(Math.PI / 2).translate(0, 0.122, 0), 'sq8Rim']);      // закраина
-    for (let k = 0; k < 5; k++) for (const t of [-1, 1])                                                              // спицы парами, чуть «тарелкой»
-      W.push([new THREE.BoxGeometry(0.22, 0.028, 0.028).rotateZ(0.14).translate(0.17, 0.082, t * 0.03).rotateY(k * Math.PI * 2 / 5), 'sq8Rim']);
-    W.push([new THREE.CylinderGeometry(0.085, 0.085, 0.045, 24).translate(0, 0.07, 0), 'sq8Rim']);                      // ступица
-    W.push([new THREE.CylinderGeometry(0.036, 0.036, 0.012, 20).translate(0, 0.095, 0), 'sq8Black']);                  // колпачок
-    W.push([new THREE.TorusGeometry(0.028, 0.004, 6, 24).rotateX(Math.PI / 2).translate(0, 0.101, 0), 'chrome']);
-    for (let k = 0; k < 5; k++) W.push([new THREE.CylinderGeometry(0.008, 0.008, 0.01, 8).translate(0.06, 0.095, 0).rotateY(k * Math.PI * 2 / 5 + 0.63), 'steel']);   // болты
-    W.push([new THREE.CylinderGeometry(0.19, 0.19, 0.028, 40).translate(0, 0, 0), 'sq8Disc']);                         // тормозной диск
-    W.push([new THREE.CylinderGeometry(0.09, 0.09, 0.05, 20).translate(0, 0.01, 0), 'sq8Matt']);
-    W.push([new THREE.BoxGeometry(0.085, 0.06, 0.17).translate(0.165, 0, 0).rotateY(0.5), 'sq8Caliper']);              // суппорт
-    const M = new THREE.Matrix4().makeRotationX(Math.PI / 2); if (s < 0) M.premultiply(new THREE.Matrix4().makeRotationY(Math.PI));
-    M.premultiply(new THREE.Matrix4().makeTranslation(xa, 0.39, s * K.TRK / 2));
-    for (const [g, m] of W) add(g.applyMatrix4(M), m);
+  // торцы: плоский многоугольник по контуру крайней станции (точки 3…9 и зеркально), uv — (z, y) в долях лица
+  const cap = (s, mat, dir) => {
+    const half = s.pts.slice(3), loop = [...half.map(([z, y]) => [z, y]), ...half.slice(0, -1).reverse().map(([z, y]) => [-z, y])];
+    // после rotateY(dir·90°) местная x фигуры становится мировой −dir·z, поэтому x = −dir·z; u растёт вправо для смотрящего на торец
+    const sh = new THREE.Shape(loop.map(([z, y]) => new THREE.Vector2(-dir * z, y))), g = new THREE.ShapeGeometry(sh);
+    const zs = loop.map(p => Math.abs(p[0])), zmax = Math.max(...zs), ys = loop.map(p => p[1]), y0 = Math.min(...ys), y1 = Math.max(...ys), uv = g.attributes.uv, p = g.attributes.position;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, (zmax - p.getX(i)) / (2 * zmax), (p.getY(i) - y0) / (y1 - y0));
+    g.rotateY(dir * Math.PI / 2); g.translate(s.x, 0, 0);
+    return [g, mat, true];
   };
-  for (const xa of [XF, XR]) for (const s of [-1, 1]) wheel(xa, s);
-  // --- фары HD Matrix: корпус в носу, спереди — рисунок с линзами и дневной полосой ---
-  for (const s of [-1, 1]) add(wrapDecal(bodyMesh, 1, 0.872, 0.997, s * 0.86, s * 0.30, 20, 2, 0.006), 'sq8Lamp');   // u=0 — внешний край, огибает угол
-  // --- нос: решётка/воздухозаборники (рисунок по поверхности), номер, чёрный сплиттер ---
-  add(wrapDecal(bodyMesh, 1, 0.44, 0.98, 0.82, -0.82, 40, 6), 'sq8Nose');
-  add(new THREE.BoxGeometry(0.012, 0.11, 0.52).translate(XN + 0.006, 0.555, 0), 'sq8PlateBody');
-  add(own(new THREE.PlaneGeometry(0.52, 0.11).rotateY(Math.PI / 2).translate(XN + 0.0125, 0.555, 0)), 'sq8Plate');
-  add(RB(0.08, 0.05, 1.60, 0.02, 2.44, 0.235, 0), 'sq8Matt');
-  // --- корма: световая полоса во всю ширину, фонари, рисунок, номер, диффузор с 4 овальными насадками ---
-  add(wrapDecal(bodyMesh, -1, 1.028, 1.063, -0.86, 0.86, 40, 1, 0.009), 'sq8Red');                       // полоса OLED во всю ширину
-  for (const s of [-1, 1]) add(wrapDecal(bodyMesh, -1, 0.995, 1.095, s * 0.86, s * 0.46, 16, 2, 0.006), 'sq8TailLamp');
-  add(wrapDecal(bodyMesh, -1, 0.44, 0.98, -0.82, 0.82, 40, 6), 'sq8Tail');
-  add(new THREE.BoxGeometry(0.012, 0.11, 0.52).translate(XT - 0.006, 0.80, 0), 'sq8PlateBody');
-  add(own(new THREE.PlaneGeometry(0.52, 0.11).rotateY(-Math.PI / 2).translate(XT - 0.0125, 0.80, 0)), 'sq8Plate');
-  add(RB(0.06, 0.22, 1.50, 0.025, XT + 0.015, 0.28, 0), 'sq8Matt');
-  for (const z of [-0.70, -0.56, 0.56, 0.70]) {
-    add(new THREE.CylinderGeometry(0.048, 0.048, 0.08, 20).rotateZ(Math.PI / 2).scale(1, 0.75, 1).translate(XT - 0.03, 0.37, z), 'sq8Exh');
-    add(new THREE.CylinderGeometry(0.038, 0.038, 0.082, 20).rotateZ(Math.PI / 2).scale(1, 0.75, 1).translate(XT - 0.031, 0.37, z), 'sq8Matt');
-  }
-  add(new THREE.BoxGeometry(0.14, 0.022, 1.36).rotateZ(0.23).translate(-2.13, 1.503, 0), 'sq8Black');   // козырёк-спойлер над задним стеклом
-  // --- зеркала (в цвет кузова), ручки, рейлинги, антенна, дворники ---
-  for (const s of [-1, 1]) {
-    add(RB(0.13, 0.10, 0.21, 0.035, 0.80, 1.15, s * 1.085), 'sq8Paint');
-    add(new THREE.PlaneGeometry(0.19, 0.08).rotateY(-Math.PI / 2).translate(0.733, 1.20, s * 1.09), 'sq8Mirror');
-    add(Bx(0.08, 0.05, 0.10, 0.80, 1.13, s * 0.99), 'sq8Black');
-    for (const x of [0.10, -1.0]) add(RB(0.19, 0.03, 0.03, 0.012, x, 0.985, s * 1.005), 'sq8Paint');
-    add(tube([[0.02, roofY(0.02) + 0.03, s * 0.6], [-0.5, roofY(-0.5) + 0.03, s * 0.6], [-1.0, roofY(-1.0) + 0.03, s * 0.6], [-1.5, roofY(-1.5) + 0.03, s * 0.6], [-1.95, roofY(-1.95) + 0.03, s * 0.6]], 0.018, 'sq8Black')[0], 'sq8Black');
-    for (const x of [0.02, -1.95]) add(Bx(0.10, 0.032, 0.045, x, roofY(x) - 0.004, s * 0.6), 'sq8Black');
-    add(Bx(0.03, 0.012, 0.60, 1.02, 1.128, s * 0.40), 'sq8Black');   // дворник
-  }
-  add(RB(0.17, 0.055, 0.06, 0.02, -1.80, roofY(-1.80) - 0.01, 0), 'sq8Black');   // антенна «акулий плавник»
-  // --- поворот: нос +X → +Z; низ колёс — на отметку земли ---
-  const M = new THREE.Matrix4().makeRotationY(-Math.PI / 2).setPosition(0, G, 0);
-  return mergeByMat(r.map(([g, m]) => [g.applyMatrix4(M), m]));   // ≈35 000 треугольников
+  out.push(cap(S[S.length - 1], P.mats.faceF, 1), cap(S[0], P.mats.faceR, -1));
+  return { parts: out, S };
+}
+// ---------- колесо: шина с протектором (лат), диск с 10 спицами, ступица, тормозной диск и красный суппорт ----------
+TEX.treadCar = tex(256, 1, (g, p) => {   // протектор: 3 продольные канавки + ламели; повтор по окружности
+  g.fillStyle = '#17181a'; g.fillRect(0, 0, p, p); g.fillStyle = '#0a0a0b';
+  for (const u of [0.3, 0.5, 0.7]) g.fillRect(0, u * p - 7, p, 14);
+  for (let i = 0; i < 16; i++) { const y = i * p / 16; g.fillRect(0, 0, 0, 0); g.fillStyle = '#0d0e0f'; g.fillRect(y, 0, 4, p * 0.26); g.fillRect(y + 8, p * 0.74, 4, p * 0.26); }
+});
+MAT.carTire = std({ map: TEX.treadCar, roughness: 0.92 });
+MAT.carRim = std({ color: 0x1c1d1f, roughness: 0.35, metalness: 0.6 });
+MAT.carDisc = std({ color: 0x7a7d80, roughness: 0.45, metalness: 0.8 });
+MAT.carCaliper = std({ color: 0xc8202a, roughness: 0.4 });
+function carWheel(R, W, rimR, spokes, x, y, z, side) {   // side +1 — правый борт (наружу +z)
+  const r = [], w2 = W / 2;
+  // профиль шины (радиус, вдоль оси): от обода по боковине к плечу, плоский протектор, обратно
+  const prof = [[rimR - 0.01, -w2 + 0.02], [R - 0.06, -w2 + 0.012], [R - 0.015, -w2 + 0.045], [R, -w2 + 0.09], [R, w2 - 0.09], [R - 0.015, w2 - 0.045], [R - 0.06, w2 - 0.012], [rimR - 0.01, w2 - 0.02]].map(p => new THREE.Vector2(...p));
+  const tire = new THREE.LatheGeometry(prof, 56); tire.rotateX(Math.PI / 2);   // ось → Z
+  const uv = tire.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 44, uv.getY(i) * 1.2); tire.userData.ownUV = true;
+  r.push([tire, 'carTire', true]);
+  const off = side * (W / 2 - 0.035);   // наружная плоскость диска
+  r.push([CyZ(rimR - 0.005, 0.03, 0, 0, side * (W / 2 - 0.09), 40), 'carRim'], [CyZ(rimR - 0.01, 0.2, 0, 0, 0, 40), 'under']);   // бочка диска
+  for (let i = 0; i < spokes; i++) { const a = i * 2 * Math.PI / spokes + (i % 2 ? 0.14 : 0); const sp = Bx(0.028, rimR - 0.075, 0.04).translate(0, 0.07, off).rotateZ(a); r.push([sp, 'carRim']); }
+  r.push([CyZ(0.075, 0.03, 0, 0, off + 0.005, 24), 'carRim'], [CyZ(0.03, 0.012, 0, 0, off + 0.025, 16), 'chrome']);
+  r.push([CyZ(rimR * 0.78, 0.028, 0, 0, side * 0.02, 40), 'carDisc'], [RB(0.08, 0.22, 0.06, 0.015).translate(-0.19, 0.0, side * 0.04), 'carCaliper']);
+  const M = new THREE.Matrix4().makeTranslation(x, y, z);
+  return r.map(([g, m, k]) => [g.applyMatrix4(M), m, k]);
+}
+// ---------- общие материалы и детали ----------
+MAT.carUnder = std({ color: 0x121314, roughness: 0.95 });
+MAT.carPillar = std({ color: 0x0b0c0e, roughness: 0.22, metalness: 0.3 });
+MAT.carDarkGlass = std({ color: 0x1a2027, roughness: 0.08, metalness: 0.55 });
+MAT.carRoofBlack = std({ color: 0x0e1012, roughness: 0.12, metalness: 0.4 });
+MAT.carLamp = new THREE.MeshStandardMaterial({ color: 0xeef3f7, emissive: 0xffffff, emissiveIntensity: 0.6, roughness: 0.25 });
+MAT.carTail = new THREE.MeshStandardMaterial({ color: 0x8a1217, emissive: 0xff1f1f, emissiveIntensity: 0.9, roughness: 0.3 });
+MAT.carChromeDark = std({ color: 0x5a5e63, roughness: 0.25, metalness: 0.9 });
+// общие станции: торцы и арки — гуще
+const carStations = (L, arches, extra = []) => {
+  const h = L / 2, xs = new Set([-h, -h + 0.04, -h + 0.12, -h + 0.25, -h + 0.42, h, h - 0.04, h - 0.12, h - 0.25, h - 0.42, ...extra]);
+  for (let x = -h + 0.6; x < h - 0.5; x += 0.18) xs.add(+x.toFixed(3));
+  for (const a of arches) for (let k = 0; k <= 10; k++) xs.add(+(a.x - a.r + 2 * a.r * k / 10).toFixed(3));
+  return [...xs].sort((a, b) => a - b);
 };
+const carDetails = (C, parts) => {   // зеркала, ручки, антенна, дворники — общее для обеих машин. C: { mirrorX, mirrorY, zBody, handles:[x], waist, paint, finX }
+  for (const s of [-1, 1]) {
+    parts.push([RB(0.1, 0.05, 0.1, 0.012).translate(C.mirrorX, C.mirrorY - 0.02, s * (C.zBody + 0.03)), C.paint], [RB(0.2, 0.11, 0.14, 0.03).translate(C.mirrorX - 0.02, C.mirrorY + 0.05, s * (C.zBody + 0.1)), C.paint],
+      [Bx(0.17, 0.09, 0.01, C.mirrorX - 0.13, C.mirrorY + 0.01, s * (C.zBody + 0.1)), 'mirror']);
+    for (const hx of C.handles) parts.push([RB(0.2, 0.03, 0.02, 0.008).translate(hx, C.waist - 0.14, s * (C.zBody - 0.0)), C.paint]);
+  }
+  parts.push([RB(0.16, 0.05, 0.05, 0.02).translate(C.finX, C.finY, 0), 'carPillar']);   // плавник антенны
+};
+const faceLights = (parts, xs, ys, zs, w, h, mat, yaw, pitch = 0) => {   // фара/фонарь: тонкий блок, повёрнутый по сужению носа
+  for (const s of [-1, 1]) parts.push([new THREE.BoxGeometry(0.06, h, w).rotateX(pitch).rotateY(-s * yaw).translate(xs, ys, s * zs), mat]);
+};
+
+// ============================ Audi S8 D5 (2022) ============================
+MAT.s8Paint = std({ color: 0x4a5a3f, roughness: 0.62, metalness: 0.0 });   // матовый Emerald Green
+{
+  const L = 5.19, h = L / 2, XF = h - 1.007, XR = XF - 2.998, R = 0.36, AR = 0.44, TRK = 1.63 / 2;
+  const paint = '#4a5a3f';
+  // фары и фонари рисуются на борту (огибают углы по сужению носа и кормы) и на торцах; светятся через карту свечения
+  const quad = (g, X, Y, pts) => { g.beginPath(); pts.forEach(([x, y], i) => g[i ? 'lineTo' : 'moveTo'](X(x), Y(y))); g.closePath(); g.fill(); };
+  const lampsSide = (g, X, Y, s, glow) => {   // фара идёт по линии крыла, которое спускается к носу (0,80 → 0,69)
+    if (!glow) { g.fillStyle = '#0d0e10'; quad(g, X, Y, [[h - 0.6, 0.83], [h, 0.72], [h, 0.6], [h - 0.6, 0.7]]); g.fillRect(X(-h), Y(1.0), 0.36 * s, 0.075 * s); }   // корпуса
+    g.fillStyle = glow ? '#ffffff' : '#eef2f5'; quad(g, X, Y, [[h - 0.58, 0.805], [h, 0.70], [h, 0.665], [h - 0.58, 0.77]]);   // ДХО
+    if (!glow) { g.fillStyle = '#2a2d31'; for (const dx of [0.14, 0.27, 0.4]) { g.beginPath(); g.arc(X(h - dx), Y(0.70 + (dx - 0.0) * 0.17), 0.018 * s, 0, 7); g.fill(); } }   // линзы
+    g.fillStyle = glow ? '#ff2a2a' : '#c81e24'; g.fillRect(X(-h), Y(0.995), 0.34 * s, 0.04 * s);   // полоса OLED
+  };
+  MAT.s8Side = carCanvas(2048, 512, -h, h, 0, 1.1, (g, X, Y, s) => {   // борт: швы дверей, низ дверей, порог, фары/фонари
+    g.fillStyle = paint; g.fillRect(0, 0, 2048, 512);
+    g.fillStyle = '#15161a'; g.fillRect(0, Y(0.33), 2048, 512 - Y(0.33));   // чёрная накладка порога
+    const grd = g.createLinearGradient(0, Y(0.42), 0, Y(0.33)); grd.addColorStop(0, 'rgba(0,0,0,0)'); grd.addColorStop(1, 'rgba(0,0,0,0.35)'); g.fillStyle = grd; g.fillRect(0, Y(0.42), 2048, Y(0.33) - Y(0.42));
+    g.strokeStyle = 'rgba(20,24,16,0.85)'; g.lineWidth = 3; g.lineCap = 'round';
+    const seam = (x, y0, y1) => { g.beginPath(); g.moveTo(X(x), Y(y0)); g.lineTo(X(x), Y(y1)); g.stroke(); };
+    seam(1.05, 0.36, 1.1); seam(-0.17, 0.36, 1.1); seam(-1.36, 0.46, 1.1); seam(2.05, 0.4, 1.1); seam(-2.1, 0.45, 1.1);
+    g.beginPath(); g.moveTo(X(1.05), Y(0.36)); g.lineTo(X(-1.36), Y(0.36)); g.stroke();
+    g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(X(-2.0), Y(1.0), 0.14 * s, 0.14 * s);   // лючок
+    lampsSide(g, X, Y, s, false);
+  }, { roughness: 0.62 }, (g, X, Y, s) => lampsSide(g, X, Y, s, true));
+  MAT.s8Band = carCanvas(1024, 128, 0, 1, 0, 1, (g, X, Y) => {   // боковые стёкла: чёрная окантовка, стойка B, тёмное стекло
+    const gl = g.createLinearGradient(0, 0, 0, 128); gl.addColorStop(0, '#2a323b'); gl.addColorStop(1, '#0d1115'); g.fillStyle = gl; g.fillRect(0, 0, 1024, 128);
+    g.fillStyle = '#0a0b0d'; g.fillRect(0, 0, 1024, 9); g.fillRect(0, 118, 1024, 10);
+    const u = x => (x - (-1.9)) / (1.16 + 1.9) * 1024;   // glassX S8
+    g.fillRect(u(-0.14) - 10, 0, 20, 128); g.fillRect(u(-1.4) - 7, 0, 14, 128);
+    g.fillRect(u(1.16) - 40, 0, 40, 128);   // стойка A
+  }, { roughness: 0.08, metalness: 0.5 });
+  // торец носа: лицо от уровня порога (0,17) до кромки капота (0,70), ширина ±0,73 → решётка почти во всю ширину, фары в верхних углах
+  const FY0 = 0.17, FY1 = 0.70, yv = y => (1 - (y - FY0) / (FY1 - FY0)) * 512;
+  const faceLamps = (g, glow) => {
+    for (const [u0, u1] of [[0, 0.3], [0.7, 1]]) { if (!glow) { g.fillStyle = '#0d0e10'; g.fillRect(u0 * 1024, yv(0.72), (u1 - u0) * 1024, yv(0.6) - yv(0.72)); }
+      g.fillStyle = glow ? '#fff' : '#eef2f5'; g.fillRect(u0 * 1024, yv(0.70), (u1 - u0) * 1024, yv(0.665) - yv(0.70)); } };
+  MAT.s8Face = carCanvas(1024, 512, 0, 1, 0, 1, (g) => {   // нос: решётка Singleframe с сотами, кольца, нижние воздухозаборники, номер, сплиттер
+    g.fillStyle = paint; g.fillRect(0, 0, 1024, 512);
+    faceLamps(g, false);
+    g.fillStyle = '#0c0d0f'; g.fillRect(0, yv(0.23), 1024, 512 - yv(0.23));      // сплиттер
+    const gx = 150, gy = yv(0.62), gw = 724, gh = yv(0.27) - yv(0.62);          // решётка (широкая трапеция)
+    g.fillStyle = '#17181a'; g.beginPath(); g.moveTo(gx, gy); g.lineTo(gx + gw, gy); g.lineTo(gx + gw - 40, gy + gh); g.lineTo(gx + 40, gy + gh); g.closePath(); g.fill();
+    g.save(); g.beginPath(); g.moveTo(gx + 14, gy + 14); g.lineTo(gx + gw - 14, gy + 14); g.lineTo(gx + gw - 50, gy + gh - 14); g.lineTo(gx + 50, gy + gh - 14); g.closePath(); g.clip();
+    hexGrid(g, gx, gy, gw, gh, 24, '#2b2d30', '#08090a'); g.restore();
+    audiRings(g, 512, gy + 36, 22, 7, '#3a3d40');
+    g.fillStyle = '#e8e8e4'; g.fillRect(432, yv(0.37), 160, yv(0.31) - yv(0.37)); g.fillStyle = '#222'; g.font = 'bold 26px Segoe UI'; g.textAlign = 'center'; g.fillText('S8', 512, yv(0.325));
+    for (const x of [10, 904]) { g.fillStyle = '#0f1012'; g.beginPath(); g.roundRect(x, yv(0.45), 110, yv(0.26) - yv(0.45), 10); g.fill(); g.save(); g.beginPath(); g.roundRect(x + 8, yv(0.44), 94, yv(0.27) - yv(0.44), 8); g.clip(); hexGrid(g, x, yv(0.45), 110, yv(0.26) - yv(0.45), 12, '#26282b', '#0a0b0c'); g.restore(); }
+  }, { roughness: 0.55 }, g => faceLamps(g, true));
+  // торец кормы: от порога (0,17) до кромки багажника (1,04); полоса фонарей на высоте ≈1,0
+  const rearBar = (g, glow) => { const yv = y => (1 - (y - 0.17) / (1.04 - 0.17)) * 512;
+    if (!glow) { g.fillStyle = '#5a1012'; g.fillRect(0, yv(1.02), 1024, yv(0.95) - yv(1.02)); }
+    g.fillStyle = glow ? '#ff2a2a' : '#ff3a3a'; for (let i = 0; i < 16; i++) g.fillRect(8 + i * 64, yv(1.005), 48, yv(0.965) - yv(1.005)); };
+  MAT.s8Rear = carCanvas(1024, 512, 0, 1, 0, 1, (g, X, Y) => {   // корма: полоса фонарей OLED, кольца, номер, диффузор
+    g.fillStyle = paint; g.fillRect(0, 0, 1024, 512);
+    g.fillStyle = '#0d0e10'; g.fillRect(0, 380, 1024, 132);                        // диффузор
+    rearBar(g, false);
+    audiRings(g, 512, 58, 13, 5, '#1b1c1e');
+    g.fillStyle = '#e8e8e4'; g.fillRect(412, 200, 200, 44); g.fillStyle = '#222'; g.font = 'bold 28px Segoe UI'; g.textAlign = 'center'; g.fillText('S8  D5', 512, 232);
+    g.fillStyle = '#ff5a3a'; g.fillRect(80, 330, 110, 16); g.fillRect(834, 330, 110, 16);   // катафоты
+  }, { roughness: 0.55 }, g => rearBar(g, true));
+  const arches = [{ x: XF, r: AR, yc: R }, { x: XR, r: AR, yc: R }];
+  const P = {
+    L, arches, glassX: [-1.9, 1.16], wsX: [0.42, 1.16], rwX: [-1.78, -1.12], roofDarkX: [-1.1, 0.35], sideBox: { x0: -h, x1: h, y0: 0, y1: 1.1 },
+    mats: { body: 's8Paint', side: 's8Side', glass: 'carDarkGlass', band: 's8Band', under: 'carUnder', pillar: 'carPillar', dark: 'carRoofBlack', faceF: 's8Face', faceR: 's8Rear' },
+    xs: carStations(L, arches, [1.16, 0.42, -1.12, -1.78]),
+    f: {
+      yFloor: () => 0.17, zWell: () => 0.60,
+      // план: почти полная ширина до самых углов, углы скруглены на последних 0,3 м (как на чертеже сверху)
+      zSill: kf([[-h, 0.72], [-h + 0.12, 0.84], [-h + 0.35, 0.92], [-h + 0.7, 0.93], [1.8, 0.93], [h - 0.4, 0.92], [h - 0.15, 0.85], [h - 0.05, 0.76], [h, 0.7]]),
+      zCrease: kf([[-h, 0.75], [-h + 0.12, 0.87], [-h + 0.35, 0.95], [-h + 0.7, 0.96], [1.9, 0.96], [h - 0.4, 0.95], [h - 0.15, 0.88], [h - 0.05, 0.79], [h, 0.72]]),
+      zShoulder: kf([[-h, 0.76], [-h + 0.12, 0.88], [-h + 0.35, 0.96], [-h + 0.7, 0.972], [1.9, 0.972], [h - 0.4, 0.96], [h - 0.15, 0.9], [h - 0.05, 0.8], [h, 0.73]]),
+      zWaist: kf([[-h, 0.72], [-h + 0.15, 0.85], [-h + 0.4, 0.92], [-1.5, 0.935], [1.2, 0.935], [1.9, 0.93], [h - 0.4, 0.92], [h - 0.15, 0.86], [h - 0.05, 0.77], [h, 0.7]]),
+      zGlassTop: kf([[-h, 0.62], [-2.3, 0.78], [-1.78, 0.66], [-1.2, 0.63], [0.4, 0.63], [1.16, 0.66], [1.6, 0.82], [h - 0.15, 0.74], [h - 0.05, 0.66], [h, 0.6]]),
+      zRoofEdge: kf([[-h, 0.5], [-2.3, 0.62], [-1.78, 0.55], [-1.2, 0.53], [0.4, 0.53], [1.16, 0.55], [1.6, 0.62], [h - 0.15, 0.56], [h, 0.46]]),
+      yCrease: kf([[-h, 0.42], [h, 0.40]]),
+      yShoulder: kf([[-h, 0.80], [-1.9, 0.78], [1.9, 0.74], [h, 0.70]]),
+      // капот спускается к носу и на последних 0,4 м «падает» в решётку: торец получается невысоким (0,17–0,70)
+      yWaist: kf([[-h, 1.02], [-2.1, 1.06], [-1.78, 1.07], [-1.2, 1.05], [0.3, 1.01], [1.16, 0.99], [1.7, 0.93], [2.15, 0.85], [h - 0.15, 0.77], [h, 0.66]]),
+      yGlassTop: kf([[-h, 1.03], [-2.2, 1.08], [-1.78, 1.10], [-1.5, 1.28], [-1.12, 1.40], [-0.6, 1.43], [0.0, 1.43], [0.42, 1.39], [0.8, 1.22], [1.16, 1.02], [1.7, 0.95], [2.15, 0.87], [h - 0.15, 0.79], [h, 0.68]]),
+      yRoof: kf([[-h, 1.04], [-2.2, 1.09], [-1.78, 1.12], [-1.5, 1.31], [-1.12, 1.43], [-0.6, 1.47], [0.0, 1.47], [0.42, 1.43], [0.8, 1.26], [1.16, 1.03], [1.7, 0.97], [2.15, 0.89], [h - 0.15, 0.81], [h, 0.70]]),
+    },
+  };
+  BUILD.audiS8 = o => {
+    const { parts } = carHull(P);
+    for (const s of [-1, 1]) parts.push(...carWheel(R, 0.27, 0.267, 10, XF, R, s * TRK, s), ...carWheel(R, 0.27, 0.267, 10, XR, R, s * TRK, s));
+    carDetails({ mirrorX: 0.98, mirrorY: 1.0, zBody: 0.94, handles: [0.45, -0.85], waist: 1.03, paint: 's8Paint', finX: -1.55, finY: 1.42 }, parts);
+    parts.push([Bx(1.0, 0.03, 0.07, -h + 0.045, 1.015, 0), 'carPillar']);                // чёрная кромка-спойлер багажника
+    for (const s of [-1, 1]) for (const dz of [0.1, 0.22]) parts.push([CyX(0.045, 0.12, -h + 0.02, 0.33, s * (0.62 + dz), 18).scale(1, 0.8, 1), 'carChromeDark']);   // 4 овальные насадки
+    parts.push([Bx(1.9, 0.02, 1.2, 0, 0.03, 0), 'carUnder']);
+    const y0 = o.ground ?? TERR, M = new THREE.Matrix4().makeRotationY(-Math.PI / 2).setPosition(0, y0, 0);
+    return parts.map(([g, m, k]) => [g.applyMatrix4(M), m, k ?? false]);
+  };
+}
+
+// ============================ Audi SQ8 4M (2024) ============================
+MAT.sq8Paint = std({ color: 0xb89a63, roughness: 0.3, metalness: 0.35 });   // Sakhir Gold Metallic
+{
+  const L = 5.01, h = L / 2, XF = h - 0.97, XR = XF - 2.998, R = 0.39, AR = 0.49, TRK = 1.68 / 2;
+  const paint = '#b89a63';
+  const quad = (g, X, Y, pts) => { g.beginPath(); pts.forEach(([x, y], i) => g[i ? 'lineTo' : 'moveTo'](X(x), Y(y))); g.closePath(); g.fill(); };
+  const lampsSide = (g, X, Y, s, glow) => {   // фара по линии крыла (1,06 → 1,0 у носа)
+    if (!glow) { g.fillStyle = '#0d0e10'; quad(g, X, Y, [[h - 0.62, 1.09], [h, 1.03], [h, 0.9], [h - 0.62, 0.96]]); g.fillRect(X(-h), Y(1.19), 0.42 * s, 0.085 * s); }
+    g.fillStyle = glow ? '#ffffff' : '#eef2f5'; quad(g, X, Y, [[h - 0.6, 1.065], [h, 1.005], [h, 0.965], [h - 0.6, 1.025]]);
+    if (!glow) { g.fillStyle = '#2a2d31'; for (const dx of [0.16, 0.3, 0.44]) { g.beginPath(); g.arc(X(h - dx), Y(0.95 + dx * 0.1), 0.02 * s, 0, 7); g.fill(); } }
+    g.fillStyle = glow ? '#ff2a2a' : '#c81e24'; g.fillRect(X(-h), Y(1.18), 0.4 * s, 0.045 * s);
+  };
+  MAT.sq8Side = carCanvas(2048, 512, -h, h, 0, 1.4, (g, X, Y, s) => {
+    g.fillStyle = paint; g.fillRect(0, 0, 2048, 512);
+    g.fillStyle = '#15161a'; g.fillRect(0, Y(0.45), 2048, 512 - Y(0.45));   // чёрный порог/низ
+    g.fillStyle = '#8f9397'; g.fillRect(X(-1.2), Y(0.5), (1.2 + 1.3) * s, 0.025 * s);   // хром-полоска порога (S-пакет)
+    g.strokeStyle = 'rgba(60,45,20,0.8)'; g.lineWidth = 3; g.lineCap = 'round';
+    const seam = (x, y0, y1) => { g.beginPath(); g.moveTo(X(x), Y(y0)); g.lineTo(X(x), Y(y1)); g.stroke(); };
+    seam(1.0, 0.48, 1.4); seam(-0.2, 0.48, 1.4); seam(-1.3, 0.6, 1.4); seam(2.0, 0.5, 1.4); seam(-2.05, 0.55, 1.4);
+    g.beginPath(); g.moveTo(X(1.0), Y(0.48)); g.lineTo(X(-1.3), Y(0.48)); g.stroke();
+    lampsSide(g, X, Y, s, false);
+  }, { roughness: 0.3, metalness: 0.35 }, (g, X, Y, s) => lampsSide(g, X, Y, s, true));
+  MAT.sq8Band = carCanvas(1024, 128, 0, 1, 0, 1, (g) => {
+    const gl = g.createLinearGradient(0, 0, 0, 128); gl.addColorStop(0, '#2a323b'); gl.addColorStop(1, '#0d1115'); g.fillStyle = gl; g.fillRect(0, 0, 1024, 128);
+    g.fillStyle = '#0a0b0d'; g.fillRect(0, 0, 1024, 10); g.fillRect(0, 116, 1024, 12);
+    const u = x => (x - (-1.95)) / (0.95 + 1.95) * 1024;
+    g.fillRect(u(-0.2) - 10, 0, 20, 128); g.fillRect(u(-1.4) - 8, 0, 16, 128); g.fillRect(u(0.95) - 46, 0, 46, 128); g.fillRect(0, 0, u(-1.85), 128);
+  }, { roughness: 0.08, metalness: 0.5 });
+  // торец носа SQ8: высокий и прямой (0,3–1,03), восьмиугольная решётка почти во всю высоту, фары в верхних углах
+  const yv = y => (1 - (y - 0.3) / (1.03 - 0.3)) * 512;
+  const faceLamps = (g, glow) => {
+    for (const [u0, u1] of [[0, 0.3], [0.7, 1]]) { if (!glow) { g.fillStyle = '#0d0e10'; g.fillRect(u0 * 1024, yv(1.05), (u1 - u0) * 1024, yv(0.92) - yv(1.05)); }
+      g.fillStyle = glow ? '#fff' : '#eef2f5'; g.fillRect(u0 * 1024, yv(1.005), (u1 - u0) * 1024, yv(0.965) - yv(1.005)); } };
+  const rearBar = (g, glow) => { const yv = y => (1 - (y - 0.3) / (1.2 - 0.3)) * 512;
+    if (!glow) { g.fillStyle = '#5a1012'; g.fillRect(0, yv(1.2), 1024, yv(1.13) - yv(1.2)); g.fillStyle = '#131416'; g.fillRect(360, yv(1.2), 304, yv(1.13) - yv(1.2)); }
+    g.fillStyle = glow ? '#ff2a2a' : '#ff3a3a'; for (let i = 0; i < 16; i++) if (i < 5 || i > 10) g.fillRect(8 + i * 64, yv(1.19), 50, yv(1.14) - yv(1.19)); };
+  MAT.sq8Face = carCanvas(1024, 512, 0, 1, 0, 1, (g) => {   // восьмиугольная решётка, боковые заборники с сотами, номер
+    g.fillStyle = paint; g.fillRect(0, 0, 1024, 512);
+    faceLamps(g, false);
+    g.fillStyle = '#0c0d0f'; g.fillRect(0, yv(0.36), 1024, 512 - yv(0.36));
+    const gx = 170, gy = yv(0.93), gw = 684, gh = yv(0.42) - yv(0.93);
+    g.fillStyle = '#1a1b1d'; g.beginPath(); g.moveTo(gx + 50, gy); g.lineTo(gx + gw - 50, gy); g.lineTo(gx + gw, gy + 70); g.lineTo(gx + gw - 36, gy + gh); g.lineTo(gx + 36, gy + gh); g.lineTo(gx, gy + 70); g.closePath(); g.fill();
+    g.save(); g.beginPath(); g.moveTo(gx + 62, gy + 14); g.lineTo(gx + gw - 62, gy + 14); g.lineTo(gx + gw - 14, gy + 76); g.lineTo(gx + gw - 48, gy + gh - 14); g.lineTo(gx + 48, gy + gh - 14); g.lineTo(gx + 14, gy + 76); g.closePath(); g.clip();
+    hexGrid(g, gx, gy, gw, gh, 32, '#2a2c2f', '#08090a'); g.restore();
+    audiRings(g, 512, gy + 48, 24, 8, '#333639');
+    g.fillStyle = '#e8e8e4'; g.fillRect(422, yv(0.49), 180, yv(0.43) - yv(0.49)); g.fillStyle = '#222'; g.font = 'bold 26px Segoe UI'; g.textAlign = 'center'; g.fillText('SQ8', 512, yv(0.445));
+    for (const x of [14, 880]) { g.fillStyle = '#101113'; g.beginPath(); g.roundRect(x, yv(0.6), 130, yv(0.38) - yv(0.6), 14); g.fill(); g.save(); g.beginPath(); g.roundRect(x + 10, yv(0.59), 110, yv(0.39) - yv(0.59), 10); g.clip(); hexGrid(g, x, yv(0.6), 130, yv(0.38) - yv(0.6), 14, '#2a2c2f', '#0a0b0c'); g.restore(); }
+  }, { roughness: 0.4, metalness: 0.2 }, g => faceLamps(g, true));
+  MAT.sq8Rear = carCanvas(1024, 512, 0, 1, 0, 1, (g) => {
+    g.fillStyle = paint; g.fillRect(0, 0, 1024, 512);
+    g.fillStyle = '#0d0e10'; g.fillRect(0, 400, 1024, 112);
+    rearBar(g, false); audiRings(g, 512, (1 - (1.215 - 0.3) / 0.9) * 512, 15, 5, '#2a2b2d');
+    g.fillStyle = '#e8e8e4'; g.fillRect(412, 250, 200, 44); g.fillStyle = '#222'; g.font = 'bold 28px Segoe UI'; g.textAlign = 'center'; g.fillText('SQ8', 512, 282);
+    g.fillStyle = '#ff5a3a'; g.fillRect(70, 350, 120, 14); g.fillRect(834, 350, 120, 14);
+  }, { roughness: 0.4, metalness: 0.2 }, g => rearBar(g, true));
+  const arches = [{ x: XF, r: AR, yc: R }, { x: XR, r: AR, yc: R }];
+  const P = {
+    L, arches, glassX: [-1.95, 0.95], wsX: [0.35, 0.95], rwX: [-2.4, -1.92], roofDarkX: [-1.45, 0.25], sideBox: { x0: -h, x1: h, y0: 0, y1: 1.4 },
+    mats: { body: 'sq8Paint', side: 'sq8Side', glass: 'carDarkGlass', band: 'sq8Band', under: 'carUnder', pillar: 'carPillar', dark: 'carRoofBlack', faceF: 'sq8Face', faceR: 'sq8Rear' },
+    xs: carStations(L, arches, [0.95, 0.35, -1.92, -2.4]),
+    f: {
+      yFloor: () => 0.3, zWell: () => 0.6,
+      zSill: kf([[-h, 0.8], [-h + 0.1, 0.9], [-h + 0.3, 0.95], [-h + 0.6, 0.955], [1.8, 0.955], [h - 0.4, 0.94], [h - 0.15, 0.88], [h - 0.05, 0.8], [h, 0.74]]),
+      zCrease: kf([[-h, 0.83], [-h + 0.1, 0.93], [-h + 0.3, 0.975], [-h + 0.6, 0.98], [1.9, 0.98], [h - 0.4, 0.965], [h - 0.15, 0.9], [h - 0.05, 0.82], [h, 0.76]]),
+      zShoulder: kf([[-h, 0.84], [-h + 0.1, 0.94], [-h + 0.3, 0.99], [-h + 0.6, 0.997], [1.9, 0.997], [h - 0.4, 0.98], [h - 0.15, 0.92], [h - 0.05, 0.84], [h, 0.77]]),
+      zWaist: kf([[-h, 0.8], [-h + 0.12, 0.9], [-h + 0.35, 0.93], [-1.5, 0.94], [1.0, 0.945], [1.9, 0.94], [h - 0.4, 0.93], [h - 0.15, 0.88], [h - 0.05, 0.8], [h, 0.74]]),
+      zGlassTop: kf([[-h, 0.72], [-2.4, 0.76], [-1.92, 0.68], [-1.2, 0.65], [0.35, 0.66], [0.95, 0.7], [1.4, 0.84], [h - 0.15, 0.78], [h - 0.05, 0.7], [h, 0.64]]),
+      zRoofEdge: kf([[-h, 0.6], [-2.4, 0.64], [-1.92, 0.57], [-1.2, 0.55], [0.35, 0.56], [0.95, 0.58], [1.4, 0.64], [h - 0.15, 0.58], [h, 0.5]]),
+      yCrease: kf([[-h, 0.62], [h, 0.6]]),
+      yShoulder: kf([[-h, 1.0], [-1.6, 0.98], [1.6, 0.95], [h, 0.9]]),
+      yWaist: kf([[-h, 1.18], [-2.4, 1.26], [-1.92, 1.32], [-1.0, 1.27], [0.0, 1.22], [0.95, 1.2], [1.5, 1.12], [2.1, 1.05], [h, 1.0]]),
+      yGlassTop: kf([[-h, 1.19], [-2.4, 1.3], [-1.92, 1.47], [-1.5, 1.57], [-1.0, 1.62], [-0.3, 1.64], [0.35, 1.6], [0.7, 1.42], [0.95, 1.23], [1.5, 1.14], [2.1, 1.07], [h, 1.02]]),
+      yRoof: kf([[-h, 1.2], [-2.4, 1.31], [-1.92, 1.49], [-1.5, 1.59], [-1.0, 1.65], [-0.3, 1.67], [0.35, 1.62], [0.7, 1.45], [0.95, 1.24], [1.5, 1.16], [2.1, 1.08], [h, 1.03]]),
+    },
+  };
+  BUILD.audiSQ8 = o => {
+    const { parts } = carHull(P);
+    for (const s of [-1, 1]) parts.push(...carWheel(R, 0.29, 0.292, 10, XF, R, s * TRK, s), ...carWheel(R, 0.29, 0.292, 10, XR, R, s * TRK, s));
+    carDetails({ mirrorX: 0.8, mirrorY: 1.22, zBody: 0.95, handles: [0.4, -0.75], waist: 1.25, paint: 'sq8Paint', finX: -1.7, finY: 1.57 }, parts);
+    for (const s of [-1, 1]) {   // рейлинги — трубка по дуге крыши, на лапках
+      const pts = []; for (let x = -1.75; x <= 0.56; x += 0.15) pts.push([x, P.f.yRoof(x) + 0.035, s * 0.6]);
+      parts.push(tube(pts, 0.018, 'carPillar', 40));
+      for (const x of [-1.7, -0.6, 0.5]) parts.push([Bx(0.07, 0.04, 0.035, x, P.f.yRoof(x) - 0.005, s * 0.6), 'carPillar']);
+    }
+    parts.push([Bx(1.3, 0.02, 0.22, -2.0, P.f.yRoof(-1.92) - 0.03, 0), 'sq8Paint']);   // спойлер на кромке крыши
+    for (const s of [-1, 1]) for (const dz of [0.1, 0.22]) parts.push([CyX(0.05, 0.12, -h + 0.02, 0.44, s * (0.64 + dz), 18).scale(1, 0.8, 1), 'carChromeDark']);
+    parts.push([Bx(1.9, 0.02, 1.2, 0, 0.1, 0), 'carUnder']);
+    const y0 = o.ground ?? TERR, M = new THREE.Matrix4().makeRotationY(-Math.PI / 2).setPosition(0, y0, 0);
+    return parts.map(([g, m, k]) => [g.applyMatrix4(M), m, k ?? false]);
+  };
 }
 // Мебель. Каждый предмет собирается один раз «у себя» (в начале координат); где он стоит и как повёрнут —
 // из dom-data.js или из правок редактора (кнопка «Двигать мебель»). Правки хранятся в браузере по id предмета
@@ -5630,7 +5363,7 @@ function blocked(lvl, x, y) {
   for (const o of OBST[lvl]) if (!o.off && hit(o, x, y, R)) return true;
   if (lvl === 'gf') return !inPoly(SITE, x, y) || edgeDist(SITE, x, y) < R;   // за границу участка не выйти
   if (lvl === 'bs') return !D.basement.area.some(a => inRect(a, x, y));   // под землёй — только внутри цоколя
-  if (!D.slabs.some(s => inRect(s, x, y))) return true;          // нет пола (пустота над гостиной, лестничный проём)
+  if (!D.slabs.some(s => inRect(s, x, y) && slabZ(s)[1] === AT)) return true;   // нет пола (пустота над гостиной, лестничный проём); крыши выше — не пол
   return ceilingAt(x, y, AT) - AT < 1.8;                         // под скатом слишком низко — не пройти
 }
 function floorZ(lvl, x, y) {
@@ -5774,7 +5507,7 @@ function buildMap(lvl) {
   if (lvl === 'bs') for (const a of D.basement.area) rect(a.x[0], a.x[1], a.y[0], a.y[1], '#cfccc5');
   else if (lvl === 'gf') for (const f of D.floors) { if (f.base === undefined) rect(f.x[0], f.x[1], f.y[0], f.y[1], f.m === 'paving' ? '#8c8f93' : f.m === 'gravel' ? '#cbc5b9' : '#dddbd5'); }
   else {
-    for (const s of D.slabs) rect(s.x[0], s.x[1], s.y[0], s.y[1], '#d6d4ce');
+    for (const s of D.slabs) if (slabZ(s)[1] === AT) rect(s.x[0], s.x[1], s.y[0], s.y[1], '#d6d4ce');
     for (let x = BOUNDS.x0; x < BOUNDS.x1; x += 0.2) for (let y = BOUNDS.y0; y < BOUNDS.y1; y += 0.2)   // низкие места под скатом
       if (D.slabs.some(s => inRect(s, x, y)) && ceilingAt(x, y, AT) - AT < 1.8) rect(x, x + 0.2, y, y + 0.2, '#b9b6b0');
   }
