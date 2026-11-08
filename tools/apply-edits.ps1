@@ -29,6 +29,21 @@ foreach ($p in $edits.PSObject.Properties) {
   $t = $t.Substring(0, $m.Index) + $new + $t.Substring($m.Index + $m.Length)
   $done++
 }
+# положение зданий (window.BLD_EDITS: { garage: { x, y, rot, bx, by, brot } }) — строка «garage: { name: '…', x: …, y: …, rot: …,» в dom-data.js
+$bm = [regex]::Match($raw, 'window\.BLD_EDITS\s*=\s*(\{[^\r\n]*\})\s*;')
+if ($bm.Success) {
+  $blds = $bm.Groups[1].Value | ConvertFrom-Json
+  foreach ($p in $blds.PSObject.Properties) {
+    $key = $p.Name; $b = $p.Value
+    $rx = "($([regex]::Escape($key)): \{ name: '[^']*', x: )(-?[\d.]+)(, y: )(-?[\d.]+)(, rot: )(-?\d+)"
+    $m = [regex]::Match($t, $rx)
+    if (-not $m.Success) { "Здание $key — не нашёл строку положения в dom-data.js"; continue }
+    if ([double]::Parse($m.Groups[2].Value, $inv) -ne [double]$b.bx -or [double]::Parse($m.Groups[4].Value, $inv) -ne [double]$b.by) { "Здание $key — в dom-data.js уже сдвинуто, пропускаю"; continue }
+    $new = $m.Groups[1].Value + ([double]$b.x).ToString($inv) + $m.Groups[3].Value + ([double]$b.y).ToString($inv) + $m.Groups[5].Value + [int]$b.rot
+    $t = $t.Substring(0, $m.Index) + $new + $t.Substring($m.Index + $m.Length)
+    "Здание $key перенесено: x $($b.x), y $($b.y), поворот $($b.rot)"
+  }
+}
 # граница участка (если в файле есть window.SITE_EDITS) — строка site: { poly: [...] } в dom-data.js
 $sm = [regex]::Match($raw, 'window\.SITE_EDITS\s*=\s*(\{[^\r\n]*\})\s*;')
 if ($sm.Success) {

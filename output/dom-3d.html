@@ -38,6 +38,9 @@
   .compass { background: #c0392b; color: #fff; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 13px; }
 .siteLen { background: rgba(255,255,255,.9); color: #7a3a10; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: bold; border: 1px solid #e07a2a; pointer-events: none; }
 .siteArea { background: #2c7a3a; color: #fff; padding: 4px 10px; border-radius: 5px; font-size: 13px; font-weight: bold; text-align: center; pointer-events: none; line-height: 1.35; }
+.bldTag { background: rgba(47,111,159,.92); color: #fff; padding: 3px 9px; border-radius: 5px; font-size: 13px; font-weight: bold; pointer-events: none; white-space: nowrap; }
+.bldTag.on { background: #d0302a; }
+#edit #eBld { margin: 6px 0 2px; padding: 6px 8px; background: #eef3f7; border-radius: 5px; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -71,10 +74,13 @@
   <div class="row"><button id="eSave">💾 Сохранить в файл</button><button id="eResetAll">Сбросить всё</button></div>
   <div id="eSite"></div>
   <div class="row"><button id="eSiteReset">↺ Участок как в проекте</button></div>
+  <div id="eBld"></div>
+  <div class="row"><button id="eBldReset">↺ Здание как в проекте</button></div>
+  <div class="ehint">Здания: тяни синюю метку (шаг 10 см, с Alt — свободно), Q / E — поворот на 90°. После отпускания страница перестраивается.</div>
   <div class="ehint">Участок: тяни оранжевый угол; белая точка на стороне — тянуть, чтобы добавить угол; щёлкни угол и Delete — убрать его. Шаг 10 см (с Alt — свободно).</div>
   <div class="ehint">Тяни предмет мышью — шаг 5 см (с Alt — свободно). Q / E — поворот на 15°, с Shift — на 90°. Стрелки — сдвиг на 5 см. Esc — снять выбор. Всё запоминается само.</div>
 </div>
-<div id="map" class="panel"><canvas id="mapc" width="250" height="262"></canvas></div>
+<div id="map" class="panel"><canvas id="mapc" width="300" height="300"></canvas></div>
 <div id="where" class="panel"></div>
 <div id="hint" class="panel"></div>
 <div id="cross"></div>
@@ -110,9 +116,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 const D = window.HOUSE;
 if (!D) { showMsg('Не найден файл dom-data.js — он должен лежать рядом с dom-3d.html.'); throw new Error('no data'); }
 // Необязательные разделы: чего нет в dom-data.js — считаем пустым, чтобы один и тот же движок годился для любого дома.
-for (const k of ['roofs', 'walls', 'slabs', 'floors', 'columns', 'blocks', 'pv', 'frames', 'drapes', 'rooms', 'furniture', 'lights']) D[k] ??= [];
+const BLD_ARR = ['roofs', 'walls', 'slabs', 'floors', 'columns', 'blocks', 'pv', 'frames', 'drapes', 'rooms', 'furniture', 'lights', 'siteGravel', 'siteBushes'];
+for (const k of BLD_ARR) D[k] ??= [];
 D.meta ??= {}; D.finish ??= {}; D.basement ??= { area: [], ceil: [] };
-for (const p of D.roofs) if (p.poly) { const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]); p.x = [Math.min(...xs), Math.max(...xs)]; p.y = [Math.min(...ys), Math.max(...ys)]; }
+const LS_PFX = D.meta.id ? 'dom3d-' + D.meta.id : 'dom3d';   // у каждого дома свои правки редактора: все file://-страницы делят одно хранилище
 // Камеры, старт прогулки, солнце, мини-карта, сетка проверки — раздел view в dom-data.js; чего нет — значения первого дома.
 const V = Object.assign({
   center: [14.5, 15],                                    // «середина» дома (вокруг неё растёт лес)
@@ -125,6 +132,119 @@ const V = Object.assign({
   grid: { x0: -3, y0: -4, w: 36, h: 39 },                // сетка проверки проходов (?check=1), м
   northDeg: 0,                                           // куда смотрит север: 0 — +Y (как в доме 1), 180 — −Y; поворачивает солнце и небо
 }, D.view || {});
+
+// =====================================================================
+//  Здания. Дом — верхний уровень данных (building 'house'). Пристройки (гараж и т.п.) — D.buildings.<имя>: те же разделы
+//  (walls, roofs, slabs, floors, rooms, furniture, stair, …), но в СВОИХ местных координатах. У каждого здания — место на участке:
+//  x, y — куда попадает местное начало координат, rot — поворот 0/90/180/270 (как у мебели: 90 — лицом на запад/+X).
+//  При загрузке всё пересчитывается в координаты участка и сливается в общие списки, у каждого элемента остаётся метка bld.
+//  Редактор («Двигать мебель») двигает здания целиком; правки хранятся в браузере (ключ …-buildings-v1) и переносятся
+//  в dom-data.js скриптом tools\apply-edits.ps1 (строка x/y/rot здания). Предметы на участке (корт) — bld: 'site', они не двигаются с домом.
+// =====================================================================
+const BLD_LS = LS_PFX + '-buildings-v1';
+D.buildings ??= {};
+D.buildings.house = Object.assign({ name: 'Дом' }, D.buildings.house || {});
+const BLD_EDITS = (() => { try { return JSON.parse(localStorage.getItem(BLD_LS) || '{}'); } catch { return {}; } })();
+const BLD = {};   // имя → { name, base: {x, y, rot}, pos: {x, y, rot}, data }
+for (const [key, b] of Object.entries(D.buildings)) {
+  const base = { x: b.x || 0, y: b.y || 0, rot: ((Math.round((b.rot || 0) / 90) * 90) % 360 + 360) % 360 }, e = BLD_EDITS[key];
+  const pos = e && e.bx === base.x && e.by === base.y && e.brot === base.rot ? { x: e.x, y: e.y, rot: e.rot } : { ...base };
+  BLD[key] = { key, name: b.name || key, base, pos, data: key === 'house' ? D : b };
+}
+// жёсткое преобразование: точка, вектор, направление ('+x' …), прямоугольник плана; poly-крыши получают свои границы после него
+function bldXf(P) {
+  const r = P.rot * Math.PI / 180, c = Math.round(Math.cos(r)), s = Math.round(Math.sin(r));
+  const pt = ([x, y]) => [+(x * c + y * s + P.x).toFixed(4), +(-x * s + y * c + P.y).toFixed(4)];
+  const vec = ([x, y]) => [x * c + y * s, -x * s + y * c];
+  const dir = d => { const v = vec({ '+x': [1, 0], '-x': [-1, 0], '+y': [0, 1], '-y': [0, -1] }[d]); return v[0] > 0.5 ? '+x' : v[0] < -0.5 ? '-x' : v[1] > 0.5 ? '+y' : '-y'; };
+  const rng = (xr, yr) => { const p = pt([xr[0], yr[0]]), q = pt([xr[1], yr[1]]); return { x: [Math.min(p[0], q[0]), Math.max(p[0], q[0])], y: [Math.min(p[1], q[1]), Math.max(p[1], q[1])] }; };
+  const matrix = () => new THREE.Matrix4().makeRotationY(r).setPosition(P.x, 0, P.y);
+  return { pt, vec, dir, rng, matrix, deg: P.rot, ident: !P.rot && !P.x && !P.y };
+}
+const ROT_F = { '+y': 0, '-y': 180, '+x': 90, '-x': 270 };
+function placeBuilding(B) {
+  const T = bldXf(B.pos), d = B.data, R = o => { if (o.x && o.y && Array.isArray(o.x)) Object.assign(o, T.rng(o.x, o.y)); };
+  const tag = o => { o.bld ??= B.key; return o; };
+  B.T = T;
+  for (const w of d.walls || []) {
+    tag(w); if (w.bld !== B.key) continue;
+    const alongX = Math.abs(w.b[0] - w.a[0]) > Math.abs(w.b[1] - w.a[1]), a0 = w.a;
+    const along = c => { const p = T.pt(alongX ? [c, a0[1]] : [a0[0], c]); return T.dir(alongX ? '+x' : '+y').includes('x') ? p[0] : p[1]; };
+    for (const o of w.o || []) {
+      if (o.from !== undefined) { o.from = along(o.from); o.to = along(o.to); }
+      if (o.poly) o.poly = o.poly.map(([c, z]) => [along(c), z]);
+      if (o.mull?.v) o.mull.v = o.mull.v.map(along);
+    }
+    w.a = T.pt(w.a); w.b = T.pt(w.b);
+    if (w.side) w.side = T.dir(w.side);
+  }
+  for (const p of d.roofs || []) {
+    tag(p); if (p.bld !== B.key) continue;
+    if (p.poly) p.poly = p.poly.map(T.pt); else R(p);
+    if (p.pitch && p.fall) { const onX = p.fall.includes('x'), q = T.pt(onX ? [p.hi, 0] : [0, p.hi]); p.fall = T.dir(p.fall); p.hi = p.fall.includes('x') ? q[0] : q[1]; }
+    if (p.poly) { const xs = p.poly.map(q => q[0]), ys = p.poly.map(q => q[1]); p.x = [Math.min(...xs), Math.max(...xs)]; p.y = [Math.min(...ys), Math.max(...ys)]; }
+  }
+  for (const k of ['slabs', 'floors', 'blocks', 'pv', 'siteGravel']) for (const o of d[k] || []) { tag(o); if (o.bld === B.key) R(o); }
+  for (const o of [...(d.basement?.area || []), ...(d.basement?.ceil || [])]) R(o);
+  if (d.gravel) { for (const o of [...(d.gravel.areas || []), ...(d.gravel.strips || [])]) R(o); d.gravel.skylights = (d.gravel.skylights || []).map(([x0, x1, y0, y1]) => { const r = T.rng([x0, x1], [y0, y1]); return [...r.x, ...r.y]; }); }
+  d.columns = (d.columns || []).map(c => { if (c.bld && c.bld !== B.key) return c; const p = T.pt(c); p.bld = B.key; return p; });
+  d.siteBushes = (d.siteBushes || []).map(b => { if (b.bld && b.bld !== B.key) return b; const p = T.pt(b); p.push(b[2]); p.bld = B.key; return p; });
+  for (const f of d.frames || []) { tag(f); if (f.bld === B.key) f.side = T.dir(f.side); }
+  for (const r of d.rooms || []) { tag(r); if (r.bld === B.key) r.poly = r.poly.map(T.pt); }
+  for (const l of d.lights || []) { tag(l); if (l.bld === B.key) [l.x, l.y] = T.pt([l.x, l.y]); }
+  for (const dr of d.drapes || []) {   // шторы: x — диапазон вдоль окна, y — линия карниза (или наоборот после поворота); in — в какую сторону комната
+    tag(dr); if (dr.bld !== B.key) continue;
+    const alongX = Array.isArray(dr.x), span = alongX ? dr.x : dr.y, line = alongX ? dr.y : dr.x, inn = T.vec(alongX ? [0, dr.in ?? 1] : [dr.in ?? 1, 0]);
+    const p = T.pt(alongX ? [span[0], line] : [line, span[0]]), q = T.pt(alongX ? [span[1], line] : [line, span[1]]);
+    if (Math.abs(q[0] - p[0]) > Math.abs(q[1] - p[1])) { dr.x = [Math.min(p[0], q[0]), Math.max(p[0], q[0])]; dr.y = p[1]; dr.in = Math.sign(inn[1]) || 1; }
+    else { dr.y = [Math.min(p[1], q[1]), Math.max(p[1], q[1])]; dr.x = p[0]; dr.in = Math.sign(inn[0]) || 1; }
+  }
+  for (const it of d.furniture || []) {
+    tag(it); if (it.bld !== B.key) continue;
+    it.rot = (((it.rot ?? ROT_F[it.f || '+y']) + T.deg) % 360 + 360) % 360; delete it.f;
+    [it.x, it.y] = T.pt([it.x, it.y]);
+  }
+  for (const s of [d.stair, d.stairBs]) if (s) {
+    s.bld = B.key; s.local = { x: [...s.x], y: [...s.y], obst: s.obst };
+    let T2 = T;
+    if (s.rot) {   // лестница повёрнута внутри здания (0/90/180/270) вокруг центра своего прямоугольника: 180 — низ 1-го марша у y[0]
+      const c = [(s.x[0] + s.x[1]) / 2, (s.y[0] + s.y[1]) / 2], Rs = bldXf({ x: 0, y: 0, rot: s.rot });
+      const pt = p => { const v = Rs.vec([p[0] - c[0], p[1] - c[1]]); return T.pt([c[0] + v[0], c[1] + v[1]]); };
+      const rng = (xr, yr) => { const p = pt([xr[0], yr[0]]), q = pt([xr[1], yr[1]]); return { x: [Math.min(p[0], q[0]), Math.max(p[0], q[0])], y: [Math.min(p[1], q[1]), Math.max(p[1], q[1])] }; };
+      const Ms = new THREE.Matrix4().makeTranslation(c[0], 0, c[1]).multiply(new THREE.Matrix4().makeRotationY(s.rot * Math.PI / 180)).multiply(new THREE.Matrix4().makeTranslation(-c[0], 0, -c[1]));
+      T2 = { pt, rng, matrix: () => T.matrix().multiply(Ms), ident: false };
+    }
+    s.T = T2; const r = T2.rng(s.x, s.y); s.x = r.x; s.y = r.y;
+    s.obst = s.local.obst?.map(([x0, x1, y0, y1]) => { const q = T2.rng([x0, x1], [y0, y1]); return [...q.x, ...q.y]; });
+  }
+}
+for (const B of Object.values(BLD)) placeBuilding(B);
+if (!BLD.house.T.ident) {   // дом сдвинут: камеры и старт прогулки — вместе с ним
+  const T = BLD.house.T, p3 = ([x, y, h]) => [...T.pt([x, y]), h];
+  for (const k of ['orbit', 'doll', 'dollBs']) V[k] = { cam: p3(V[k].cam), target: p3(V[k].target) };
+  for (const l in V.start) V.start[l] = [...T.pt(V.start[l]), ((V.start[l][2] - T.deg) % 360 + 360) % 360];
+}
+// пристройки вливаются в общие списки дома (дальше движок не различает, откуда что)
+const STAIRS = [];   // все лестницы: { s, grp, lo, hi } — s.local для геометрии (в координатах здания), s.x/y/obst — на участке
+for (const B of Object.values(BLD)) {
+  const d = B.data;
+  if (d.stair) STAIRS.push({ s: d.stair, grp: 'gf', lo: 'gf', hi: 'attic' });
+  if (d.stairBs) STAIRS.push({ s: d.stairBs, grp: 'bs', lo: 'bs', hi: 'gf' });
+  if (B.key === 'house') continue;
+  for (const k of BLD_ARR) if (d[k]) D[k].push(...d[k]);
+  if (d.gravel) { D.gravel ??= { areas: [], strips: [], skylights: [], band: d.gravel.band, h: d.gravel.h }; for (const k of ['areas', 'strips', 'skylights']) D.gravel[k] = [...(D.gravel[k] || []), ...(d.gravel[k] || [])]; }
+  for (const [k, names] of Object.entries(d.finish || {})) D.finish[k] = [...(D.finish[k] || []), ...names];
+  for (const a of d.basement?.area || []) D.basement.area.push(a);
+  for (const c of d.basement?.ceil || []) D.basement.ceil.push(c);
+}
+// общие границы построек (для мини-карты и сетки проверки, если в view они не заданы)
+const BOUNDS = (() => {
+  const xs = [], ys = [];
+  for (const o of [...D.floors.filter(f => f.base === undefined), ...D.slabs, ...D.basement.area]) { xs.push(...o.x); ys.push(...o.y); }
+  if (!xs.length) return { x0: -5, y0: -5, x1: 20, y1: 20 };
+  return { x0: Math.min(...xs) - 1.5, y0: Math.min(...ys) - 1.5, x1: Math.max(...xs) + 1.5, y1: Math.max(...ys) + 1.5 };
+})();
+if (!D.view?.grid) V.grid = { x0: Math.floor(BOUNDS.x0), y0: Math.floor(BOUNDS.y0), w: Math.ceil(BOUNDS.x1 - BOUNDS.x0) + 1, h: Math.ceil(BOUNDS.y1 - BOUNDS.y0) + 1 };
 const AT = D.levels.attic.z, GF_H = D.levels.gf.h, TERR = D.meta.terrain ?? -0.3;
 const CENTER = new THREE.Vector3(V.center[0], 0, V.center[1]);
 
@@ -276,6 +396,28 @@ MAT.glass.roughness = 0.02; MAT.glass.metalness = 0;   // стекло отра�
 MAT.mat = std({ color: 0x2f6b55, roughness: 0.7 });
 MAT.brass = std({ color: 0xb08d57, roughness: 0.3, metalness: 0.9 });
 MAT.walnutDark = std({ map: TEX.oak, color: 0x5b3d2a, roughness: 0.5 });   // тёмный орех для портала
+// ---------- гараж: стекло ворот, полы (эпоксидный наливной в чистой зоне, тёмная противоскользящая плитка на мойке), сталь, перфопанель ----------
+MAT.gateGlass = new THREE.MeshStandardMaterial({ color: 0x9fb9cc, transparent: true, opacity: 0.34, roughness: 0.04, metalness: 0.25, side: THREE.DoubleSide, depthWrite: false });
+TEX.epoxy = tex(512, 3, (g, p) => speckle(g, p, '#c3c6c7', 0.025, 5000, 2));
+MAT.epoxy = std({ map: TEX.epoxy, roughness: 0.22, metalness: 0.05 });
+TEX.washTile = tex(512, 1.2, (g, p) => {   // плитка 30 × 30 графит, светлый шов
+  g.fillStyle = '#6f7275'; g.fillRect(0, 0, p, p); const n = 4, s = p / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { const v = 58 + rnd() * 10 | 0; g.fillStyle = `rgb(${v},${v + 1},${v + 3})`; g.fillRect(i * s + 2, j * s + 2, s - 4, s - 4); }
+  for (let k = 0; k < 6000; k++) { const v = (rnd() - 0.5) * 0.1; g.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`; g.fillRect(rnd() * p, rnd() * p, 2, 2); }
+});
+MAT.washTile = std({ map: TEX.washTile, roughness: 0.6 });
+MAT.steelBlack = std({ color: 0x25272a, roughness: 0.45, metalness: 0.5 });
+MAT.steelGrey = std({ color: 0x8e9398, roughness: 0.4, metalness: 0.6 });
+MAT.lanePaint = std({ color: 0x3e4246, roughness: 0.5 });
+MAT.liftBlue = std({ color: 0x2b5c92, roughness: 0.4, metalness: 0.3 });
+MAT.safetyYellow = std({ color: 0xd9a81c, roughness: 0.5 });
+MAT.oakTop = std({ map: TEX.oak, color: 0xcaa87a, roughness: 0.5 });
+MAT.plasticBlack = std({ color: 0x1f2022, roughness: 0.7 });
+MAT.hoseBlack = std({ color: 0x2a2b2c, roughness: 0.8 });
+MAT.hoseBlue = std({ color: 0x2a4f9a, roughness: 0.7 });
+MAT.lacqGrey = std({ color: 0x9b9fa3, roughness: 0.3 });
+MAT.olive = std({ color: 0x5c6b4c, roughness: 0.6, metalness: 0.2 });
+MAT.vinylBlack = std({ color: 0x1a1b1d, roughness: 0.75 });
 // фасады дома 2 (Вилла Флорида): белые панели со швами, графитовая штукатурка, дубовые рамы окон (meta.frameMat: 'oakFrame')
 TEX.panelWhite = tex(256, 2.4, (g, p) => { speckle(g, p, '#f3f3f0', 0.04, 2500); g.fillStyle = '#cdcdc8'; g.fillRect(0, 0, 3, p); g.fillRect(p / 2, 0, 3, p); g.fillRect(0, p / 2, p, 3); });
 MAT.whitePanel = std({ map: TEX.panelWhite, roughness: 0.6 });
@@ -901,6 +1043,21 @@ ph(MAT.smokedOak, 'oak_veneer_01', 1.2, { tint: 0x8d877e });
 // =====================================================================
 const groups = {};
 for (const k of ['bs', 'gf', 'attic', 'ceil', 'roof', 'site', 'labels', 'lights']) { groups[k] = new THREE.Group(); scene.add(groups[k]); }
+// Внутри каждой группы — подгруппа на здание (BG[здание][группа]): редактор двигает здание целиком, сдвигая эти подгруппы.
+// CUR_BLD — какое здание сейчас строится (ставится перед сборкой каждого элемента); PUT_XF — матрица, которой put() переводит
+// геометрию из координат здания на участок (нужна лестнице: она собирается в своих осях).
+let CUR_BLD = 'house', PUT_XF = null;
+const BG = {};
+function bgrp(bld, grp) {
+  const by = BG[bld] ??= {};
+  if (!by[grp]) { by[grp] = new THREE.Group(); by[grp].name = bld + '|' + grp; groups[grp].add(by[grp]); }
+  return by[grp];
+}
+function clearGroup(grp) {   // убрать всё содержимое группы (с подгруппами зданий), освободив геометрию
+  groups[grp].traverse(o => { if (o.isMesh) o.geometry.dispose(); });
+  for (const o of [...groups[grp].children]) groups[grp].remove(o);
+  for (const by of Object.values(BG)) delete by[grp];
+}
 // уровни: bs — цоколь, gf — 1 этаж, attic — мансарда. LZ — отметка пола уровня.
 const LVLS = ['bs', 'gf', 'attic'].filter(l => D.levels[l]), LZ = { bs: D.levels.bs?.z, gf: 0, attic: D.levels.attic.z };   // уровни, которых нет в данных, пропускаются
 const buckets = new Map();
@@ -918,19 +1075,21 @@ function worldUV(g) {   // UV в метрах по направлению нор
 }
 function put(geo, mat, grp, keepUV = false) {
   let g = geo.index ? geo.toNonIndexed() : geo;
+  if (PUT_XF) g.applyMatrix4(PUT_XF);
   for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
   if (!g.attributes.normal) g.computeVertexNormals();
   if (!keepUV || !g.attributes.uv) worldUV(g);
   g.clearGroups();
-  const key = grp + '|' + mat;
-  if (!buckets.has(key)) buckets.set(key, { grp, mat, geos: [] });
+  const key = grp + '|' + mat + '|' + CUR_BLD;
+  if (!buckets.has(key)) buckets.set(key, { grp, mat, bld: CUR_BLD, geos: [] });
   buckets.get(key).geos.push(g);
 }
 function flush() {
-  for (const { grp, mat, geos } of buckets.values()) {
+  for (const { grp, mat, bld, geos } of buckets.values()) {
+    if (!MAT[mat]) { console.warn('Нет материала', mat); continue; }
     const m = new THREE.Mesh(mergeGeometries(geos, false), MAT[mat]);
     m.castShadow = !MAT[mat].transparent && grp !== 'site'; m.receiveShadow = true;
-    groups[grp].add(m);
+    bgrp(bld, grp).add(m);
   }
   buckets.clear();
 }
@@ -1002,6 +1161,7 @@ function roofPoly(p) {
   put(trisGeo(bot, v => [v.x, v.z]), 'slab', 'roof');
 }
 for (const p of D.roofs) {
+  CUR_BLD = p.bld || 'house';
   if (p.poly) { roofPoly(p); continue; }
   const c = [[p.x[0], p.y[0]], [p.x[1], p.y[0]], [p.x[1], p.y[1]], [p.x[0], p.y[1]]];
   const b = c.map(([x, y]) => new THREE.Vector3(x, under(p, x, y), y));
@@ -1016,20 +1176,30 @@ for (const p of D.roofs) {
 // =====================================================================
 //  Стены с проёмами, рамы, двери
 // =====================================================================
+function clipTop(w, x, y) {   // верх стены в точке: своя высота, но не выше кровли групп clip (+ off)
+  let top = w.h;
+  if (w.clip) {
+    const vals = [];
+    for (const p of D.roofs) if (w.clip.includes(p.g)) { const u = under(p, x, y); if (u !== null) vals.push(u + (w.off || 0) - (w.z0 || 0)); }
+    if (vals.length) top = w.mode === 'max' ? Math.min(w.h, Math.max(...vals)) : Math.min(w.h, ...vals);
+  }
+  return Math.max(0.05, top);
+}
 function wallTop(w, L, ax, ay, ux, uy) {
+  const N = Math.max(2, Math.ceil(L / 0.1)), pts = [];
+  for (let i = 0; i <= N; i++) { const s = L * i / N; pts.push([s, clipTop(w, ax + ux * s, ay + uy * s)]); }
+  return pts.filter((p, i) => i === 0 || i === pts.length - 1 ||
+    Math.abs((p[1] - pts[i - 1][1]) * (pts[i + 1][0] - p[0]) - (pts[i + 1][1] - p[1]) * (p[0] - pts[i - 1][0])) > 1e-6);
+}
+function wallBot(w, L, ax, ay, ux, uy) {   // низ стены по ВЕРХУ кровли групп clipBot (щёки люкарны видны только над скатом): точки слева направо
   const N = Math.max(2, Math.ceil(L / 0.1)), pts = [];
   for (let i = 0; i <= N; i++) {
     const s = L * i / N, x = ax + ux * s, y = ay + uy * s;
-    let top = w.h;
-    if (w.clip) {
-      const vals = [];
-      for (const p of D.roofs) if (w.clip.includes(p.g)) { const u = under(p, x, y); if (u !== null) vals.push(u + (w.off || 0) - (w.z0 || 0)); }
-      if (vals.length) top = w.mode === 'max' ? Math.min(w.h, Math.max(...vals)) : Math.min(w.h, ...vals);
-    }
-    pts.push([s, Math.max(0.05, top)]);
+    let z = 0;
+    for (const p of D.roofs) if (w.clipBot.includes(p.g)) { const u = under(p, x, y); if (u !== null) z = Math.max(z, u + p.t - (w.z0 || 0)); }
+    pts.push([s, Math.min(z, clipTop(w, x, y) - 0.02)]);
   }
-  return pts.filter((p, i) => i === 0 || i === pts.length - 1 ||
-    Math.abs((p[1] - pts[i - 1][1]) * (pts[i + 1][0] - p[0]) - (pts[i + 1][1] - p[1]) * (p[0] - pts[i - 1][0])) > 1e-6);
+  return pts;
 }
 function openingPoly(o, toS) {
   if (o.k === 'arch') return archLine(arch(o, toS), 0).reverse();
@@ -1192,7 +1362,8 @@ function prepGeo(g) {
   return g;
 }
 function makeDoor(d) {
-  const rec = { leaves: d.leaves, meshes: [], isOpen: true, t: 1, lvl: d.w.lvl, name: d.name || 'Дверь' };
+  const t0 = d.closed ? 0 : 1;   // closed — дверь (ворота) в начале закрыта
+  const rec = { leaves: d.leaves, meshes: [], isOpen: !d.closed, t: t0, lvl: d.w.lvl, name: d.name || 'Дверь' };
   const outer = new THREE.Group(); outer.matrixAutoUpdate = false; outer.matrix.copy(d.M);
   for (const leaf of d.leaves) {
     const inner = new THREE.Group(); inner.position.set(...leaf.pivot); outer.add(inner); leaf.inner = inner;
@@ -1204,15 +1375,15 @@ function makeDoor(d) {
       m.userData = { door: rec, em: m.material.emissive.getHex(), ei: m.material.emissiveIntensity };
       inner.add(m); rec.meshes.push(m);
     }
-    inner.rotation.y = leaf.open;
-    if (leaf.slide) inner.position.set(leaf.pivot[0] + leaf.slide[0], leaf.pivot[1], leaf.pivot[2] + leaf.slide[1]);
+    inner.rotation[leaf.axis || 'y'] = leaf.closed + (leaf.open - leaf.closed) * t0;   // axis 'x' — подъёмные ворота (ось петель вдоль стены)
+    if (leaf.slide) inner.position.set(leaf.pivot[0] + leaf.slide[0] * t0, leaf.pivot[1], leaf.pivot[2] + leaf.slide[1] * t0);
   }
-  groups[d.grp].add(outer);
+  bgrp(CUR_BLD, d.grp).add(outer);
   // препятствие на месте закрытой двери (по ширине проёма, на толщину стены)
   const w = d.w, [ax, ay] = w.a, L = Math.hypot(w.b[0] - ax, w.b[1] - ay), ux = (w.b[0] - ax) / L, uy = (w.b[1] - ay) / L;
   const hx = Math.abs(uy) > 0.5 ? w.t / 2 + 0.05 : 0, hy = Math.abs(ux) > 0.5 ? w.t / 2 + 0.05 : 0;
   const xa = ax + ux * d.s0, ya = ay + uy * d.s0, xb = ax + ux * d.s1, yb = ay + uy * d.s1;
-  rec.obst = { x0: Math.min(xa, xb) - hx, x1: Math.max(xa, xb) + hx, y0: Math.min(ya, yb) - hy, y1: Math.max(ya, yb) + hy, k: 'door', off: true };
+  rec.obst = { x0: Math.min(xa, xb) - hx, x1: Math.max(xa, xb) + hx, y0: Math.min(ya, yb) - hy, y1: Math.max(ya, yb) + hy, k: 'door', off: !d.closed };
   OBST[w.lvl].push(rec.obst);
   DOORS.push(rec);
   return rec;
@@ -1223,13 +1394,28 @@ function updateDoors(dt) {
     if (d.t === goal) continue;
     d.t = Math.abs(goal - d.t) < 0.01 ? goal : d.t + (goal - d.t) * Math.min(1, dt * 6);
     for (const l of d.leaves) {
-      l.inner.rotation.y = l.closed + (l.open - l.closed) * d.t;
+      l.inner.rotation[l.axis || 'y'] = l.closed + (l.open - l.closed) * d.t;
       if (l.slide) l.inner.position.set(l.pivot[0] + l.slide[0] * d.t, l.pivot[1], l.pivot[2] + l.slide[1] * d.t);
     }
   }
 }
+// ---------- подъёмные секционные ворота со стеклом (k 'gate', lift: true): чёрная рама, сетка секций, стекло; открываются как
+// щит на верхней оси — створка ложится под потолок внутрь (сторона −n стены; swing: -1 — в другую сторону). closed — в начале закрыты.
+function buildLiftGate(op, s0, s1, M, w, grp) {
+  const width = s1 - s0, h = op.pts.reduce((a, p) => Math.max(a, p[1]), 0), sw = op.o.swing || 1;
+  const rows = Math.max(3, Math.round(h / 0.6)), cols = Math.max(2, Math.round(width / 0.9)), fr = 0.06, th = 0.045, parts = [];
+  const bar = (x, y, bw, bh) => parts.push([new THREE.BoxGeometry(bw, bh, th).translate(x, y, 0), FRAME]);
+  bar(width / 2, -fr / 2, width, fr); bar(width / 2, -h + fr / 2, width, fr); bar(fr / 2, -h / 2, fr, h); bar(width - fr / 2, -h / 2, fr, h);
+  for (let i = 1; i < rows; i++) bar(width / 2, -h * i / rows, width, 0.05);
+  for (let j = 1; j < cols; j++) bar(width * j / cols, -h / 2, 0.04, h);
+  parts.push([new THREE.PlaneGeometry(width - 2 * fr, h - 2 * fr).translate(width / 2, -h / 2, 0), 'gateGlass']);
+  parts.push([new THREE.BoxGeometry(0.3, 0.03, 0.03).translate(width / 2, -h + 0.95, -sw * (th / 2 + 0.02)), 'black']);   // ручка изнутри
+  for (const x of [s0 + 0.03, s1 - 0.03]) put(new THREE.BoxGeometry(0.04, h + 0.1, 0.05).translate(x, (h + 0.1) / 2, -sw * (w.t / 2 + 0.03)).applyMatrix4(M), FRAME, grp);   // направляющие
+  makeDoor({ grp, M, w, s0, s1, closed: op.o.closed, leaves: [{ pivot: [s0, h - 0.01, 0], parts, axis: 'x', closed: 0, open: sw * Math.PI / 2 }], name: op.o.name || 'Ворота' });
+}
 const OBST = { bs: [], gf: [], attic: [] };   // препятствия для прогулки: {x0, x1, y0, y1, k: 'wall' | 'furn'}
 function buildWall(w) {
+  CUR_BLD = w.bld || 'house';
   const [ax, ay] = w.a, [bx, by] = w.b;
   const L = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / L, uy = (by - ay) / L;
   const alongX = Math.abs(ux) > Math.abs(uy);
@@ -1246,9 +1432,8 @@ function buildWall(w) {
     notches.push(chain.reverse());
   }
   notches.sort((a, b) => a[0][0] - b[0][0]);
-  const outline = [[0, 0]];
-  for (const n of notches) outline.push(...n);
-  outline.push([L, 0]);
+  const outline = w.clipBot ? wallBot(w, L, ax, ay, ux, uy) : [[0, 0]];
+  if (!w.clipBot) { for (const n of notches) outline.push(...n); outline.push([L, 0]); }
   outline.push(...wallTop(w, L, ax, ay, ux, uy).reverse());
 
   const shape = new THREE.Shape(outline.map(p => new THREE.Vector2(...p)));
@@ -1314,6 +1499,7 @@ function buildWall(w) {
     }
     const sh = new THREE.Shape(op.pts.map(p => new THREE.Vector2(...p)));
     if (k === 'gate') {
+      if (op.o.lift) { buildLiftGate(op, s0, s1, M, w, grp); continue; }
       const g = new THREE.ExtrudeGeometry(sh, { depth: 0.06, bevelEnabled: false }); g.translate(0, 0, -0.03); g.applyMatrix4(M);
       put(g, op.o.m || 'wood', grp); continue;   // ворота: m — материал полотна (например 'lacquer' — белые секционные)
     }
@@ -1331,10 +1517,11 @@ for (const w of D.walls) buildWall(w);
 // Стены → прямоугольники-препятствия. Проходы: двери, широкие проёмы и стеклянные двери до пола
 // (раздвижные витражи считаем открытыми, чтобы можно было выйти на террасу). Окна и ворота — не проходы.
 for (const { w, L, ux, uy, ops } of walkWalls) {
+  if (w.noObst) continue;   // декоративная стенка (щёки люкарны над кровлей) — не препятствие
   const pass = [];
   for (const op of ops) {
     const zs = op.pts.map(p => p[1]);
-    if (op.o.k === 'gate' || op.o.k === 'win' || Math.min(...zs) > 0.05 || Math.max(...zs) < 1.9) continue;   // окно от пола — не дверь
+    if ((op.o.k === 'gate' && !op.o.lift) || op.o.k === 'win' || Math.min(...zs) > 0.05 || Math.max(...zs) < 1.9) continue;   // окно от пола — не дверь; подъёмные ворота — проход
     const bottom = op.pts.filter(p => p[1] < 1e-3).map(p => p[0]);
     // у арки с раздвижными створками проход — только между приоткрытыми створками
     const vis = op.o.k === 'portal' ? (Math.max(...bottom) - Math.min(...bottom)) * 0.275 + 0.03 : op.o.k === 'arch' ? (Math.max(...bottom) - Math.min(...bottom)) / 2 * (1 - (op.o.open ?? 0.55)) + 0.035 : 0;
@@ -1356,6 +1543,7 @@ for (const { w, L, ux, uy, ops } of walkWalls) {
 // =====================================================================
 // ---------- белые рамки вокруг фронтонов ----------
 for (const fr of D.frames || []) {
+  CUR_BLD = fr.bld || 'house';
   const w = D.walls.find(q => q.id === fr.wall);
   const [ax, ay] = w.a, [bx, by] = w.b, L = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / L, uy = (by - ay) / L;
   const topAt = s => {   // верх кровли над точкой стены
@@ -1374,8 +1562,9 @@ for (const fr of D.frames || []) {
   put(geo, 'plaster', w.lvl);
 }
 
-for (const s of D.slabs) box(s.x, s.y, [GF_H, AT], 'slab', 'ceil');
+for (const s of D.slabs) { CUR_BLD = s.bld || 'house'; box(s.x, s.y, [GF_H, AT], 'slab', 'ceil'); }
 for (const f of D.floors) {
+  CUR_BLD = f.bld || 'house';
   const top = f.z ?? 0, base = f.base ?? TERR;
   box(f.x, f.y, [base, top], f.m, f.base !== undefined ? 'ceil' : f.z !== undefined ? 'site' : 'gf');
 }
@@ -1386,7 +1575,9 @@ if (D.gravel) {
   const shape = (x0, x1, y0, y1) => new THREE.Shape([[x0, -y0], [x1, -y0], [x1, -y1], [x0, -y1]].map(p => new THREE.Vector2(...p)));
   const hole = (x0, x1, y0, y1) => new THREE.Path([[x0, -y0], [x0, -y1], [x1, -y1], [x1, -y0]].map(p => new THREE.Vector2(...p)));
   const lay = (sh, m) => { const g = new THREE.ExtrudeGeometry(sh, { depth: h, bevelEnabled: false, curveSegments: 1 }); g.rotateX(-Math.PI / 2); g.translate(0, AT, 0); put(g, m, 'ceil'); };
-  for (const { x: [x0, x1], y: [y0, y1] } of G.areas) {
+  for (const ar of G.areas) {
+    CUR_BLD = ar.bld || 'house';
+    const [x0, x1] = ar.x, [y0, y1] = ar.y;
     const edge = shape(x0, x1, y0, y1); edge.holes.push(hole(x0 + b, x1 - b, y0 + b, y1 - b)); lay(edge, 'pebbleDark');
     const field = shape(x0 + b, x1 - b, y0 + b, y1 - b);
     for (const [sx0, sx1, sy0, sy1] of G.skylights || []) {
@@ -1396,16 +1587,18 @@ if (D.gravel) {
     }
     lay(field, 'pebbleLight');
   }
-  for (const s of G.strips || []) lay(shape(s.x[0], s.x[1], s.y[0], s.y[1]), s.m || 'pebbleDark');
+  for (const s of G.strips || []) { CUR_BLD = s.bld || 'house'; lay(shape(s.x[0], s.x[1], s.y[0], s.y[1]), s.m || 'pebbleDark'); }
 }
 const finishOf = name => Object.entries(D.finish).find(([, names]) => names.includes(name))?.[0] ?? 'floor';
 for (const r of D.rooms) {
+  CUR_BLD = r.bld || 'house';
   const sh = new THREE.Shape(r.poly.map(([x, y]) => new THREE.Vector2(x, -y)));
   const g = new THREE.ShapeGeometry(sh); g.rotateX(-Math.PI / 2);
   g.translate(0, LZ[r.lvl] + 0.004, 0);
   put(g, finishOf(r.name), r.lvl);
 }
 // цоколь: плита пола и перекрытие над ним (перекрытие — часть 1-го этажа, в «Домике: цоколь» оно скрыто)
+CUR_BLD = 'house';
 for (const a of D.basement.area) box(a.x, a.y, [LZ.bs - 0.3, LZ.bs], 'concrete', 'bs');
 for (const c of D.basement.ceil) { box(c.x, c.y, [-0.35, -0.3], 'slab', 'gf'); box(c.x, c.y, [-0.36, -0.35], 'int', 'gf'); }
 
@@ -1489,21 +1682,25 @@ function buildStair(s, grp) {
   glassRun((xa[1] + xb[0]) / 2, land, zl, land + p2 * s.tread, s.z1 - r, 0.95);        // между маршами — вверху
   box([(xa[1] + xb[0]) / 2 - 0.025, (xa[1] + xb[0]) / 2 + 0.025], [land - 0.025, land + 0.025], [s.z0, s.z1 + 1.0], 'black', grp);   // чёрная стойка
 }
-buildStair(D.stair, 'gf');
-if (D.stairBs) buildStair({ ...D.stairBs, z1: -0.36 }, 'bs');   // лестница в цоколь — под основной, до перекрытия
+// каждая лестница собирается в осях своего здания (PUT_XF переносит её на участок); лестница в цоколь — под основной, до перекрытия
+for (const { s, grp, lo } of STAIRS) {
+  CUR_BLD = s.bld || 'house'; PUT_XF = s.T.ident ? null : s.T.matrix();
+  buildStair({ ...s, x: s.local.x, y: s.local.y, z1: lo === 'bs' ? -0.36 : s.z1 }, grp);
+}
+PUT_XF = null;
 
 // =====================================================================
-//  Колонны, труба, солнечные панели, LED-подсветка навеса
+//  Колонны, труба, солнечные панели
 // =====================================================================
-for (const [x, y] of D.columns) box([x - 0.15, x + 0.15], [y - 0.15, y + 0.15], [0, GF_H], 'plaster', 'gf');
-for (const b of D.blocks) box(b.x, b.y, b.z, b.m, b.g || (b.z[0] >= AT - 0.01 ? 'attic' : 'gf'));
+for (const c of D.columns) { CUR_BLD = c.bld || 'house'; const [x, y] = c; box([x - 0.15, x + 0.15], [y - 0.15, y + 0.15], [0, GF_H], 'plaster', 'gf'); }
+for (const b of D.blocks) { CUR_BLD = b.bld || 'house'; box(b.x, b.y, b.z, b.m, b.g || (b.z[0] >= AT - 0.01 ? 'attic' : 'gf')); }
 for (const p of D.pv) {
+  CUR_BLD = p.bld || 'house';
   const r = D.roofs.find(q => q.id === p.roof);
   const c = [[p.x[0], p.y[0]], [p.x[1], p.y[0]], [p.x[1], p.y[1]], [p.x[0], p.y[1]]].map(([x, y]) => new THREE.Vector3(x, under(r, x, y) + r.t + 0.06, y));
   put(quadsGeo([[c[0], c[3], c[2], c[1]]], v => [v.x, v.z]), 'pv', 'roof');
 }
-box([12.55, 26.25], [-0.97, -0.94], [GF_H - 0.03, GF_H], 'led', 'ceil');
-box([12.53, 12.56], [-0.95, 3.45], [GF_H - 0.03, GF_H], 'led', 'ceil');
+CUR_BLD = 'house';
 
 // =====================================================================
 //  Мебель. Каждый предмет собирается из простых тел в местных координатах:
@@ -3945,6 +4142,1068 @@ BUILD.tenniscourt = o => {
     r.push([lumpy(0.6, h / 1.2, s * (SX / 2 + HD + 0.65), y0 + h / 2, z, 0.05), 'hedge']);
   return mergeByMat(r);
 };
+// =====================================================================
+//  ГАРАЖ (анализ и план — output\garazh.md): светильники, разметка, оборудование мойки, стеллажи, мототехника,
+//  мастерская на втором этаже. Местные оси как у всей мебели: X — ширина, Y — вверх, +Z — лицо.
+// =====================================================================
+MAT.pegboard = canvasMat(512, 512, (g, W, H) => {   // перфопанель: кремовая доска с сеткой отверстий 25 мм
+  g.fillStyle = '#e3dccb'; g.fillRect(0, 0, W, H); g.fillStyle = '#9a9283';
+  for (let x = 12; x < W; x += 20) for (let y = 12; y < H; y += 20) { g.beginPath(); g.arc(x, y, 2.6, 0, 7); g.fill(); }
+});
+MAT.pegboard.map.wrapS = MAT.pegboard.map.wrapT = THREE.RepeatWrapping;
+MAT.toolSil = decalMat(512, 256, (g, W, H) => {   // силуэты инструментов на перфопанели (ключи, молоток, плоскогубцы, отвёртки)
+  g.clearRect(0, 0, W, H); g.fillStyle = '#2b2d30'; g.strokeStyle = '#2b2d30'; g.lineCap = 'round';
+  for (let i = 0; i < 6; i++) { const x = 30 + i * 34, L = 120 + (i % 3) * 25; g.lineWidth = 7; g.beginPath(); g.moveTo(x, 30); g.lineTo(x, 30 + L); g.stroke(); g.beginPath(); g.arc(x, 30 + L, 10, 0, 7); g.fill(); g.beginPath(); g.arc(x, 24, 9, 0, 7); g.fill(); }
+  g.lineWidth = 9; g.beginPath(); g.moveTo(260, 40); g.lineTo(260, 200); g.stroke(); g.fillRect(228, 24, 64, 30);
+  g.lineWidth = 6; for (const dx of [-10, 10]) { g.beginPath(); g.moveTo(330 + dx, 60); g.lineTo(330 + dx * 1.8, 200); g.stroke(); } g.beginPath(); g.ellipse(330, 50, 18, 24, 0, 0, 7); g.fill();
+  for (let i = 0; i < 4; i++) { const x = 390 + i * 28; g.lineWidth = 4; g.beginPath(); g.moveTo(x, 70); g.lineTo(x, 190); g.stroke(); g.fillRect(x - 8, 30, 16, 44); }
+}, { transparent: true, alphaTest: 0.4 });
+const bayNumMat = n => MAT['bayNum' + n] ??= decalMat(256, 256, (g, W, H) => { g.clearRect(0, 0, W, H); g.fillStyle = '#d9dcdd'; g.font = 'bold 190px Segoe UI'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(n), W / 2, H / 2 + 10); }, { transparent: true, alphaTest: 0.4, roughness: 0.3 });
+const CyX = (r, h, x, y, z, seg = 24) => new THREE.CylinderGeometry(r, r, h, seg).rotateZ(Math.PI / 2).translate(x, y, z);   // цилиндр вдоль X, центр в точке
+const CyZ = (r, h, x, y, z, seg = 24) => new THREE.CylinderGeometry(r, r, h, seg).rotateX(Math.PI / 2).translate(x, y, z);   // цилиндр вдоль Z, центр в точке
+const uvScale = (g, sx, sy) => { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * sx, uv.getY(i) * sy); return g; };
+const handleBar = (x, y, z, w, mat = 'steel') => [[Bx(w, 0.018, 0.018, x, y, z + 0.03), mat], [Bx(0.015, 0.015, 0.03, x - w / 2 + 0.01, y, z + 0.01), mat], [Bx(0.015, 0.015, 0.03, x + w / 2 - 0.01, y, z + 0.01), mat]];
+const caster = (x, z, r = 0.04) => [[CyX(r, 0.03, x, r, z, 12), 'rubber']];   // колёсико
+const wheelTread = (r, w, x, y, z, ry = 0) => {   // колесо: шина с бороздками протектора, чёрный диск, ступица; ось — местная X
+  const parts = [[CyX(r, w, 0, 0, 0, 32), 'tire'], [CyX(r * 0.6, w + 0.004, 0, 0, 0, 24), 'steelBlack'], [CyX(r * 0.2, w + 0.02, 0, 0, 0, 12), 'steelGrey']];
+  for (let i = 0; i < 16; i++) parts.push([Bx(w + 0.006, 0.02, 0.025).translate(0, r - 0.01, 0).rotateX(i * Math.PI / 8), 'rubber']);
+  return moved(parts, new THREE.Matrix4().makeRotationY(ry).setPosition(x, y, z));
+};
+Object.assign(BUILD, {
+  // линейный светильник: белый корпус, светящаяся полоса снизу (горит вечером); z — высота подвеса (по умолчанию под потолком top)
+  ledBatten: o => { const w = o.w || 1.5, y = o.z ?? ((o.top ?? GF_H) - 0.07); return [[Bx(w, 0.06, 0.08, 0, y), 'white'], [Bx(w - 0.04, 0.012, 0.05, 0, y - 0.01), 'led']]; },
+  // разметка машино-места на полу: П-образная линия 10 см и номер у заднего края; лицо (+Z) — к въезду
+  bayLine: o => {
+    const w = o.w || 3.6, d = o.d || 6.8, t = 0.1, h = 0.004, r = [];
+    r.push([Bx(w, h, t, 0, 0, -d / 2 + t / 2), 'lanePaint'], [Bx(t, h, d, -w / 2 + t / 2, 0), 'lanePaint'], [Bx(t, h, d, w / 2 - t / 2, 0), 'lanePaint']);
+    if (o.n) { bayNumMat(o.n); r.push([new THREE.PlaneGeometry(0.7, 0.7).rotateX(-Math.PI / 2).rotateY(Math.PI).translate(0, h + 0.002, d / 2 - 0.6), 'bayNum' + o.n, true]); }
+    return r;
+  },
+  // стеллаж для 4 колёс: чёрная сталь, две полки, колёса лежат боком-стопкой / стоят
+  tireRack: o => {
+    const w = o.w || 1.3, d = 0.5, h = 1.9, r = [];
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) r.push([Bx(0.04, h, 0.04, sx * (w / 2 - 0.02), 0, sz * (d / 2 - 0.02)), 'steelBlack']);
+    for (const y of [0.25, 1.05]) { r.push([Bx(w, 0.03, 0.04, 0, y, -d / 2 + 0.02), 'steelBlack'], [Bx(w, 0.03, 0.04, 0, y, d / 2 - 0.02), 'steelBlack']); for (let i = 0; i < 2; i++) { const x = -w / 2 + 0.35 + i * 0.6; r.push(...wheelTread(0.36, 0.26, x, y + 0.39, 0, 0, 0)); } }
+    return r;
+  },
+  // инструментальная тележка: чёрный корпус, ящики со стальными ручками, верхний ящик, колёса
+  toolChest: o => {
+    const w = o.w || 1.1, d = 0.5, r = [[RB(w, 0.95, d, 0.01, 0, 0.12), 'steelBlack'], [Bx(w, 0.02, d, 0, 1.07), 'oakTop'], [RB(w - 0.1, 0.4, d - 0.05, 0.01, 0, 1.09), 'steelBlack']];
+    for (let i = 0; i < 4; i++) r.push([Bx(w - 0.06, 0.16, 0.01, 0, 0.17 + i * 0.22, d / 2), 'black'], ...handleBar(0, 0.25 + i * 0.22, d / 2, w * 0.5));
+    for (let i = 0; i < 2; i++) r.push([Bx(w - 0.16, 0.14, 0.01, 0, 1.13 + i * 0.17, d / 2 - 0.025), 'black'], ...handleBar(0, 1.2 + i * 0.17, d / 2 - 0.025, w * 0.45));
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) r.push(...caster(sx * (w / 2 - 0.1), sz * (d / 2 - 0.1), 0.06));
+    return r;
+  },
+  // ряд гаражных шкафов: чёрные тумбы со стальной столешницей, перфопанель с инструментом, навесные шкафы с LED
+  garageCab: o => {
+    const w = o.w || 3.0, d = 0.6, r = [[RB(w, 0.9, d, 0.008, 0, 0, 0), 'steelBlack'], [Bx(w + 0.04, 0.04, d + 0.04, 0, 0.9, 0.02), 'steel']];
+    const n = Math.max(2, Math.round(w / 0.6)), cw = w / n;
+    for (let i = 0; i < n; i++) { const x = -w / 2 + cw * (i + 0.5); r.push([Bx(cw - 0.02, 0.86, 0.01, x, 0.02, d / 2), 'black'], ...handleBar(x, 0.78, d / 2, cw * 0.5)); }
+    r.push([uvScale(new THREE.PlaneGeometry(w, 0.8), w / 0.5, 0.8 / 0.5).translate(0, 1.4, -d / 2 + 0.01), 'pegboard', true]);
+    r.push([new THREE.PlaneGeometry(Math.min(2.0, w - 0.2), 0.6).translate(0, 1.4, -d / 2 + 0.02), 'toolSil', true]);
+    r.push([RB(w, 0.7, 0.35, 0.008, 0, 1.85, -d / 2 + 0.175), 'steelBlack'], [Bx(w - 0.1, 0.015, 0.03, 0, 1.84, -d / 2 + 0.33), 'led']);
+    for (let i = 0; i < n; i++) { const x = -w / 2 + cw * (i + 0.5); r.push([Bx(cw - 0.02, 0.66, 0.01, x, 1.87, -d / 2 + 0.35), 'black'], ...handleBar(x, 1.95, -d / 2 + 0.35, cw * 0.4)); }
+    return r;
+  },
+  // мойка: настенный аппарат высокого давления, катушка со шлангом, пистолет с пенной насадкой, щётка; лицом в помещение, спиной к стене
+  washStation: o => {
+    const r = [[RB(0.5, 0.75, 0.3, 0.02, 0, 1.15, -0.15), 'lacqGrey'], [Bx(0.46, 0.12, 0.02, 0, 1.6, 0.0), 'plasticBlack'], [Bx(0.4, 0.3, 0.02, 0, 1.22, 0.0), 'plasticBlack']];
+    r.push([new THREE.TorusGeometry(0.22, 0.07, 10, 24).rotateY(Math.PI / 2).translate(0.75, 1.3, -0.2), 'hoseBlack'], [CyX(0.26, 0.02, 0.75, 1.3, -0.2), 'steelGrey'], [CyX(0.04, 0.26, 0.75, 1.3, -0.2, 12), 'steelGrey']);   // катушка
+    r.push([Bx(0.05, 0.45, 0.05, 0.55, 1.0, -0.26), 'steelGrey'], [Bx(0.05, 0.45, 0.05, 0.95, 1.0, -0.26), 'steelGrey'], [Bx(0.5, 0.05, 0.08, 0.75, 1.0, -0.26), 'steelGrey']);   // кронштейн катушки
+    r.push(tube([[0.75, 1.1, -0.1], [0.6, 0.7, 0.1], [0.3, 0.4, 0.15], [-0.1, 0.55, 0.1], [-0.3, 1.0, 0.0]], 0.012, 'hoseBlack'));
+    r.push([Cy(0.015, 0.7, -0.3, 1.0, 0.0), 'steelGrey'], [Bx(0.05, 0.14, 0.04, -0.3, 1.0, 0.0), 'plasticBlack'], [Cy(0.05, 0.16, -0.3, 1.7, 0.0, 0.035), 'safetyYellow']);   // пистолет с копьём и пенником
+    r.push([Cy(0.012, 1.3, -0.65, 0.2, -0.22), 'steelGrey'], [Bx(0.1, 0.25, 0.06, -0.65, 1.5, -0.22), 'hoseBlue']);   // щётка на стене
+    r.push([Bx(0.9, 0.12, 0.1, -0.8, 0.3, -0.2), 'steelBlack'], [Bx(0.3, 0.3, 0.3, -1.0, 0.0, -0.1), 'plasticBlack'], [Bx(0.28, 0.02, 0.28, -1.0, 0.3, -0.1), 'white']);   // канистры и полка
+    return r;
+  },
+  // дренажный лоток в полу: решётка из нержавейки заподлицо, лицо — поперёк
+  drainChannel: o => { const w = o.w || 6.0, r = [[Bx(w, 0.006, 0.2, 0, 0.001), 'steelGrey']]; for (let i = 0; i < Math.floor(w / 0.05); i++) r.push([Bx(0.02, 0.004, 0.16, -w / 2 + 0.035 + i * 0.05, 0.006), 'black']); return r; },
+  // станция центрального пылесоса: серый цилиндр с крышкой, шланг на катушке
+  vacStation: () => [[Cy(0.22, 1.0, 0, 0.1), 'lacqGrey'], [Cy(0.23, 0.08, 0, 1.1, 0, 0.18), 'plasticBlack'], [Cy(0.06, 0.1, 0, 0), 'steelBlack'], [Cy(0.06, 0.1, 0.3, 0), 'steelBlack'],
+    [new THREE.TorusGeometry(0.2, 0.05, 10, 24).rotateY(Math.PI / 2).translate(0.55, 1.2, -0.1), 'hoseBlue'], [Bx(0.05, 0.25, 0.05, 0.55, 0.95, -0.3), 'steelGrey'], [Bx(0.3, 0.05, 0.05, 0.4, 1.2, -0.3), 'steelGrey'],
+    tube([[0.55, 1.0, 0.05], [0.4, 0.5, 0.25], [0.1, 0.3, 0.35], [-0.2, 0.6, 0.3]], 0.02, 'hoseBlue'), [Cy(0.025, 0.4, -0.2, 0.6, 0.3), 'steelGrey']],
+  // компрессор: горизонтальный ресивер на колёсах, блок мотора сверху, манометры
+  compressor: () => [[CyX(0.22, 1.0, 0, 0.42, 0), 'liftBlue'], [Bx(0.25, 0.3, 0.25, -0.15, 0.62), 'steelBlack'], [CyX(0.14, 0.26, 0.2, 0.74, 0), 'steelGrey'],
+    [Bx(0.5, 0.03, 0.03, 0, 0.9), 'steelBlack'], [CyZ(0.04, 0.03, -0.4, 0.68, 0.2, 12), 'white'], [CyZ(0.04, 0.03, -0.3, 0.68, 0.2, 12), 'white'],
+    ...[-0.35, 0.35].flatMap(x => wheelTread(0.1, 0.05, x, 0.1, 0.28)), [Bx(0.6, 0.04, 0.04, 0, 0.18, -0.28), 'steelBlack']],
+  // низкий ножничный подъёмник: две платформы заподлицо с полом, сложенные рычаги
+  scissorLift: () => { const r = []; for (const sx of [-1, 1]) { r.push([Bx(0.55, 0.11, 1.5, sx * 0.55, 0), 'steelGrey'], [Bx(0.5, 0.012, 1.45, sx * 0.55, 0.11), 'liftBlue'], [Bx(0.04, 0.06, 1.3, sx * 0.55, 0.03, 0), 'steelBlack']); for (const dz of [-0.4, 0.4]) r.push([Bx(0.5, 0.02, 0.05, sx * 0.55, 0.12, dz), 'rubber']); } r.push([Bx(0.4, 0.3, 0.3, 1.1, 0, -0.9), 'liftBlue'], [Bx(0.1, 0.5, 0.1, 1.1, 0.3, -0.9), 'steelBlack']); return r; },
+  // тележка детейлинга: два ведра с решётками, полка с химией
+  washCart: () => [[Bx(0.7, 0.04, 0.45, 0, 0.1), 'steelBlack'], [Bx(0.7, 0.04, 0.45, 0, 0.6), 'steelBlack'], ...[-1, 1].flatMap(s => [[Cy(0.015, 0.75, s * 0.33, 0.05, 0.2), 'steelBlack'], [Cy(0.015, 0.75, s * 0.33, 0.05, -0.2), 'steelBlack']]),
+    [Cy(0.15, 0.36, -0.17, 0.14, 0, 0.13), 'lacqGrey'], [Cy(0.15, 0.36, 0.17, 0.14, 0, 0.13), 'liftBlue'], [Cy(0.12, 0.2, -0.2, 0.64, 0), 'white'], [Cy(0.05, 0.22, 0.1, 0.64, 0.1), 'safetyYellow'], [Cy(0.05, 0.22, 0.22, 0.64, -0.1), 'hoseBlue'],
+    ...[-0.3, 0.3].flatMap(x => [-0.18, 0.18].flatMap(z => caster(x, z)))],
+  // квадроцикл: корпус, сиденье, руль, 4 широких колеса, багажники
+  atv: o => {
+    const c = o.c || 'olive', r = [[RB(0.6, 0.35, 1.5, 0.08, 0, 0.45, 0.05), c], [RB(1.0, 0.12, 0.7, 0.05, 0, 0.72, 0.55), c], [RB(1.0, 0.12, 0.75, 0.05, 0, 0.72, -0.6), c]];
+    r.push([RB(0.42, 0.14, 0.8, 0.06, 0, 0.8, -0.3), 'vinylBlack'], [RB(0.55, 0.1, 0.4, 0.03, 0, 0.84, 0.55), 'plasticBlack']);
+    r.push([Bx(0.5, 0.25, 0.4, 0, 0.3, 0), 'steelBlack'], [Bx(0.06, 0.5, 0.06).rotateX(-0.45).translate(0, 0.72, 0.55), 'steelGrey'], [Bx(0.7, 0.03, 0.03, 0, 1.15, 0.33), 'steelBlack'], [CyZ(0.07, 0.06, 0, 0.9, 0.92, 12), 'headlight']);
+    r.push([Bx(0.7, 0.04, 0.4, 0, 0.84, -0.85), 'steelBlack'], [Bx(0.7, 0.04, 0.3, 0, 0.84, 0.9), 'steelBlack'], [Bx(0.8, 0.03, 0.03, 0, 0.98, 1.05), 'steelBlack']);
+    for (const sz of [-0.62, 0.62]) for (const sx of [-0.48, 0.48]) r.push(...wheelTread(0.31, 0.24, sx, 0.31, sz, 0, 0));
+    for (const sx of [-0.4, 0.4]) r.push([Bx(0.3, 0.03, 0.5, sx, 0.4, 0.0), 'steelBlack']);   // подножки
+    return r;
+  },
+  // снегоход: лыжи, капот с фарой, ветровое стекло, сиденье, туннель с гусеницей
+  snowmobile: o => {
+    const c = o.c || 'liftBlue', r = [[RB(0.9, 0.5, 1.3, 0.12, 0, 0.3, 0.9), c], [RB(0.5, 0.35, 1.8, 0.05, 0, 0.3, -0.6), 'steelBlack'], [RB(0.42, 0.22, 1.3, 0.06, 0, 0.62, -0.45), 'vinylBlack']];
+    r.push([Bx(0.7, 0.45, 0.02).rotateX(-0.45).translate(0, 0.72, 1.05), 'glass'], [Bx(0.5, 0.03, 0.03, 0, 0.95, 0.5), 'steelBlack'], [Bx(0.03, 0.4, 0.03).rotateX(0.6).translate(0, 0.6, 0.7), 'steelGrey'], [Bx(0.35, 0.1, 0.05, 0, 0.5, 1.55), 'headlight']);
+    for (const sx of [-0.45, 0.45]) r.push([RB(0.14, 0.05, 1.0, 0.02, sx, 0.0, 1.2), 'steelBlack'], [Cy(0.04, 0.4, sx, 0.05, 1.1), 'steelGrey'], [Bx(0.14, 0.12, 0.2).rotateX(-0.6).translate(sx, 0.02, 1.7), 'steelBlack']);
+    for (let i = 0; i < 9; i++) r.push([Bx(0.4, 0.03, 0.08, 0, 0.0, -1.5 + i * 0.22), 'rubber']);
+    r.push([Bx(0.42, 0.1, 1.9, 0, 0.03, -0.6), 'rubber'], [Bx(0.4, 0.06, 0.3, 0, 0.45, -1.4), 'steelBlack']);
+    return r;
+  },
+  // прицеп-платформа: рама, настил, борта-рейлинги, два колеса с крыльями, дышло со сцепкой и опорным колесом; лицо (+Z) — дышло
+  trailer: o => {
+    const w = o.w || 1.8, L = o.d || 3.2, r = [[Bx(w, 0.08, L, 0, 0.5, -0.4), 'steelBlack'], [Bx(w - 0.1, 0.03, L - 0.1, 0, 0.58, -0.4), 'oakTop']];
+    for (const sx of [-1, 1]) { r.push([Bx(0.04, 0.4, L, sx * (w / 2 - 0.02), 0.6, -0.4), 'steelGrey']); for (let i = 0; i < 4; i++) r.push([Bx(0.04, 0.4, 0.04, sx * (w / 2 - 0.02), 0.6, -0.4 - L / 2 + 0.1 + i * (L - 0.2) / 3), 'steelGrey']); r.push([Bx(0.04, 0.4, 0.04, sx * (w / 2 - 0.02), 0.6, -0.4 + L / 2 - 0.1), 'steelGrey']); }
+    r.push([Bx(w, 0.4, 0.04, 0, 0.6, -0.4 - L / 2 + 0.02), 'steelGrey'], [Bx(w, 0.03, 0.04, 0, 0.98, -0.4 - L / 2 + 0.02), 'steelGrey']);
+    for (const sx of [-1, 1]) r.push(...wheelTread(0.3, 0.17, sx * (w / 2 + 0.12), 0.3, -0.5), [Bx(0.26, 0.04, 0.8, sx * (w / 2 + 0.12), 0.62, -0.5), 'steelBlack']);
+    const zf = -0.4 + L / 2;   // передний край платформы; дышло — треугольник из двух балок к сцепке
+    for (const s of [-1, 1]) r.push([Bx(0.08, 0.08, 1.5).rotateY(s * 0.3).translate(s * 0.45, 0.45, zf + 0.6), 'steelBlack']);
+    r.push([Bx(0.08, 0.08, 0.5, 0, 0.45, zf + 1.35), 'steelBlack'], [Bx(0.12, 0.1, 0.2, 0, 0.47, zf + 1.55), 'steelGrey'], [Cy(0.03, 0.4, 0.15, 0.05, zf + 1.0), 'steelGrey'], [CyX(0.08, 0.05, 0.15, 0.08, zf + 1.0, 12), 'rubber']);
+    return r;
+  },
+  // верстак: толстая дубовая столешница, чёрная стальная рама, тумба с ящиками, тиски; peg — перфопанель сзади (высота)
+  workbench: o => {
+    const w = o.w || 3.0, d = o.d || 0.75, r = [[Bx(w, 0.06, d, 0, 0.86), 'oakTop'], [Bx(w - 0.1, 0.06, d - 0.1, 0, 0.1), 'steelBlack']];
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) r.push([Bx(0.06, 0.86, 0.06, sx * (w / 2 - 0.05), 0, sz * (d / 2 - 0.05)), 'steelBlack']);
+    r.push([RB(0.9, 0.7, d - 0.1, 0.01, -w / 2 + 0.55, 0.14), 'steelBlack']);
+    for (let i = 0; i < 3; i++) r.push([Bx(0.84, 0.2, 0.01, -w / 2 + 0.55, 0.17 + i * 0.23, d / 2 - 0.05), 'black'], ...handleBar(-w / 2 + 0.55, 0.27 + i * 0.23, d / 2 - 0.05, 0.4));
+    r.push([Bx(0.18, 0.1, 0.12, w / 2 - 0.3, 0.92, d / 2 - 0.1), 'steelGrey'], [Bx(0.05, 0.08, 0.14, w / 2 - 0.22, 0.95, d / 2 - 0.1), 'steelGrey'], [CyX(0.012, 0.3, w / 2 - 0.3, 0.97, d / 2 - 0.1, 8), 'steelGrey']);   // тиски
+    if (o.peg) { r.push([uvScale(new THREE.PlaneGeometry(w, o.peg), w / 0.5, o.peg / 0.5).translate(0, 0.92 + o.peg / 2, -d / 2 + 0.01), 'pegboard', true], [new THREE.PlaneGeometry(Math.min(2.2, w - 0.3), Math.min(0.6, o.peg - 0.1)).translate(0, 0.92 + o.peg / 2, -d / 2 + 0.02), 'toolSil', true]); }
+    r.push([Bx(0.3, 0.12, 0.2, -w / 2 + 1.5, 0.92, -d / 2 + 0.2), 'redPlastic'], [Bx(0.5, 0.05, 0.3, w / 2 - 1.0, 0.92, -d / 2 + 0.25), 'oak']);   // ящик с инструментом, заготовка
+    return r;
+  },
+  // панель с инструментом на стене: перфопанель с силуэтами и полкой (тонкая, не мешает ходить)
+  toolWall: o => { const w = o.w || 2.0, h = o.h || 1.2, z = o.z ?? 1.0, r = [[uvScale(new THREE.PlaneGeometry(w, h), w / 0.5, h / 0.5).translate(0, z + h / 2, 0.02), 'pegboard', true], [new THREE.PlaneGeometry(Math.min(2.4, w - 0.2), Math.min(0.7, h - 0.2)).translate(0, z + h / 2, 0.03), 'toolSil', true], [Bx(w, 0.03, 0.18, 0, z - 0.03, 0.09), 'oakTop']]; for (let i = 0; i < 3; i++) r.push([Cy(0.05, 0.1, -w / 2 + 0.3 + i * 0.3, z, 0.09), i ? 'steelGrey' : 'redPlastic']); return r; },
+  // сборочный стол на колёсах: дубовая столешница, стальная рама, полка внизу, тиски
+  assemblyTable: o => {
+    const w = o.w || 2.0, d = o.d || 1.0, r = [[Bx(w, 0.05, d, 0, 0.87), 'oakTop'], [Bx(w - 0.2, 0.03, d - 0.2, 0, 0.25), 'steelBlack']];
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) r.push([Bx(0.06, 0.8, 0.06, sx * (w / 2 - 0.1), 0.07, sz * (d / 2 - 0.1)), 'steelBlack'], ...caster(sx * (w / 2 - 0.1), sz * (d / 2 - 0.1), 0.05));
+    r.push([Bx(0.16, 0.1, 0.12, -w / 2 + 0.3, 0.92, d / 2 - 0.1), 'steelGrey'], [Bx(0.6, 0.04, 0.4, 0.3, 0.92, 0), 'oak'], [Bx(0.3, 0.08, 0.2, -0.5, 0.92, -0.2), 'plasticBlack']);
+    return r;
+  },
+  // стальной шкаф: чёрный, две дверцы с ручками, вентиляционные прорези
+  steelCab: o => { const w = o.w || 1.0, d = o.d || 0.5, h = o.h || 2.0, r = [[RB(w, h, d, 0.008, 0, 0), 'steelBlack']]; for (const s of [-1, 1]) r.push([Bx(w / 2 - 0.02, h - 0.04, 0.01, s * w / 4, 0.02, d / 2), 'black'], [Bx(0.015, 0.3, 0.02, s * 0.05, h / 2 - 0.15, d / 2 + 0.025), 'steel']); return r; },
+  // низкие шкафы под скатом: белый лак, дубовая столешница, дверцы со швами
+  lowCabs: o => { const w = o.w || 3.0, d = o.d || 0.6, h = o.h || 0.95, r = [[RB(w, h - 0.04, d, 0.006, 0, 0), 'lacquer'], [Bx(w + 0.02, 0.04, d + 0.02, 0, h - 0.04, 0.01), 'oakTop']]; const n = Math.max(1, Math.round(w / 0.6)), cw = w / n; for (let i = 0; i < n; i++) r.push([Bx(cw - 0.015, h - 0.1, 0.008, -w / 2 + cw * (i + 0.5), 0.03, d / 2), 'white'], ...handleBar(-w / 2 + cw * (i + 0.5), h - 0.15, d / 2, 0.15, 'black')); return r; },
+  // станки: kind 'drill' — сверлильный, 'bandsaw' — ленточная пила, 'tablesaw' — циркулярный стол, 'dust' — стружкоотсос
+  machine: o => {
+    const k = o.kind || 'drill', r = [];
+    if (k === 'drill') r.push([Bx(0.4, 0.06, 0.5, 0, 0), 'steelBlack'], [Cy(0.045, 1.5, 0, 0.06, -0.15), 'steelGrey'], [Bx(0.35, 0.03, 0.35, 0, 0.75, 0.02), 'steelGrey'], [RB(0.3, 0.3, 0.6, 0.03, 0, 1.45, 0.05), 'liftBlue'], [Cy(0.03, 0.3, 0, 1.15, 0.2), 'steelGrey'], [Cy(0.02, 0.1, 0, 1.05, 0.2), 'steelBlack'], [Bx(0.25, 0.02, 0.02).rotateZ(0.4).translate(0.15, 1.55, 0.25), 'steelBlack']);
+    else if (k === 'bandsaw') r.push([Bx(0.5, 0.9, 0.5, 0, 0), 'steelBlack'], [Bx(0.6, 0.04, 0.55, 0, 0.9), 'steelGrey'], [RB(0.25, 0.9, 0.5, 0.05, 0.0, 0.94, -0.1), 'liftBlue'], [CyX(0.25, 0.12, 0.0, 1.5, -0.1), 'steelBlack'], [Bx(0.02, 0.6, 0.004, 0.0, 0.94, 0.14), 'steel']);
+    else if (k === 'tablesaw') r.push([RB(0.7, 0.8, 0.7, 0.02, 0, 0), 'steelBlack'], [Bx(1.3, 0.05, 0.75, 0, 0.8), 'steel'], [Bx(0.02, 0.12, 0.25, 0.0, 0.85, 0), 'steelGrey'], [Bx(0.3, 0.08, 0.2, 0.0, 0.93, 0), 'safetyYellow'], [Bx(0.05, 0.05, 0.75, 0.4, 0.85, 0), 'steelGrey'], [CyZ(0.07, 0.03, -0.2, 0.4, 0.36, 16), 'redPlastic']);
+    else r.push([Cy(0.2, 0.6, 0, 0.5, 0), 'steelGrey'], [Cy(0.22, 0.9, 0, 1.1, 0, 0.2), 'fabric2'], [Cy(0.2, 0.5, 0, 0.0, 0, 0.18), 'plasticBlack'], [Bx(0.3, 0.25, 0.3, 0.3, 0.6), 'steelBlack'], tube([[0.3, 0.85, 0], [0.4, 1.3, 0.2], [0.2, 1.6, 0.5]], 0.05, 'hoseBlue'));
+    return r;
+  },
+  // манометр/заправка шин на стене и таблички — простая настенная панель с колонкой подкачки
+  airPost: () => [[Bx(0.25, 0.5, 0.12, 0, 1.2, -0.06), 'lacqGrey'], [CyZ(0.07, 0.03, 0, 1.5, 0.01, 16), 'white'], tube([[0, 1.0, 0], [0.15, 0.6, 0.1], [0.2, 0.3, 0.05], [0.05, 0.1, 0.1]], 0.012, 'hoseBlue'), [Cy(0.012, 0.9, 0.2, 0.2, -0.1), 'steelGrey']],
+});
+// ===================== Toyota Tundra (3-е поколение, 2022+) TRD Off-Road CrewMax 5,5', экспедиционная =====================
+// Строим в местных осях: X — длина (+X нос), Y — вверх (0 — земля под колёсами), Z — ширина (+Z правый борт).
+// В конце все геометрии поворачиваются +X → +Z (нос предмета — +Z, как у всей мебели) и опускаются на отметку газона.
+Object.assign(MAT, {
+  tdPaint: std({ color: 0x8a9388, roughness: 0.35, metalness: 0.2 }),   // кузов Lunar Rock
+  tdTrim: std({ color: 0x141516, roughness: 0.6, metalness: 0.1 }),     // чёрный пластик: расширители арок, подножки, кунг, зеркала
+  tdGloss: std({ color: 0x0c0d0e, roughness: 0.2, metalness: 0.3 }),    // чёрный глянец: корпуса фар, стойки, ручки
+  tdGlass: std({ color: 0x161c21, roughness: 0.06, metalness: 0.55 }),  // тонированное стекло
+  tdSteel: std({ color: 0x585b5f, roughness: 0.6, metalness: 0.45 }),  // стальной силовой бампер
+  tdUnder: std({ color: 0x1a1a1a, roughness: 0.95 }),                   // днище, колёсные ниши, рама, подвеска
+  tdRim: std({ color: 0x27292b, roughness: 0.4, metalness: 0.5 }),     // чёрные диски
+  tdRed: std({ color: 0xd63a22, roughness: 0.5 }), tdOrange: std({ color: 0xec7a1f, roughness: 0.5 }),
+  tdAmber: std({ color: 0xffb53a, emissive: 0xff8a00, emissiveIntensity: 0.8, roughness: 0.3 }),      // янтарные линзы
+  tdWhiteL: std({ color: 0xffffff, emissive: 0xfff2d0, emissiveIntensity: 0.7, roughness: 0.3 }),     // белые линзы, LED
+  tdTail: std({ color: 0xc01420, emissive: 0xff2a18, emissiveIntensity: 0.6, roughness: 0.3 }),       // красные фонари
+  tdTailDark: std({ color: 0x2c0a0d, roughness: 0.15, metalness: 0.3 }),                              // корпус фонаря
+  tdBox: std({ color: 0x898c90, roughness: 0.45, metalness: 0.15 }),    // серый бокс Bundu
+  tdCase: std({ color: 0x1b1b1b, roughness: 0.85 }), tdRack: std({ color: 0x161616, roughness: 0.6, metalness: 0.3 }),
+  tdCoil: std({ color: 0xc9962c, roughness: 0.5 }), tdFabric: std({ color: 0x1f1f1f, roughness: 0.95 }),
+});
+{
+  // --- помощники для текстур ---
+  const txt = (c, s, x, y, px, col, flip = false, font = 'bold', sp = 0) => {   // надпись (flip — зеркально, для левого борта)
+    c.save(); c.translate(x, y); if (flip) c.scale(-1, 1); c.font = `${font} ${px}px Arial, Helvetica, sans-serif`;
+    if (sp) c.letterSpacing = sp + 'px'; c.fillStyle = col; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(s, 0, 0); c.restore();
+  };
+  const lit = (m, k) => { m.emissive = new THREE.Color(0xffffff); m.emissiveMap = m.map; m.emissiveIntensity = k; return m; };   // текстура сама светится
+  // --- борт (кабина + кузов): область текстуры x −3…3, y 0,40…1,55 (uv считаем по координатам профиля) ---
+  const SX0 = -3.0, SXW = 6.0, SY0 = 0.40, SYH = 1.15;
+  const sideMat = s => decalMat(2048, 392, (c, W, H) => {
+    const px = x => (x - SX0) / SXW * W, py = y => H - (y - SY0) / SYH * H, m = W / SXW, flip = s < 0;
+    c.fillStyle = '#8a9388'; c.fillRect(0, 0, W, H);
+    let g = c.createLinearGradient(0, py(1.45), 0, py(0.64)); g.addColorStop(0, 'rgba(255,255,255,0.08)'); g.addColorStop(0.55, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.2)');
+    c.fillStyle = g; c.fillRect(0, 0, W, H);
+    c.fillStyle = 'rgba(255,255,255,0.12)'; c.fillRect(px(-2.9), py(1.12), px(2.7) - px(-2.9), 3);   // ребро жёсткости над арками
+    c.fillStyle = 'rgba(0,0,0,0.12)'; c.fillRect(px(-2.9), py(1.12) + 3, px(2.7) - px(-2.9), 12);
+    for (const ax of [-1.715, 1.985]) {   // тень вокруг арок
+      const r0 = 0.56 * m, r1 = 0.74 * m, gg = c.createRadialGradient(px(ax), py(0.445), r0, px(ax), py(0.445), r1);
+      gg.addColorStop(0, 'rgba(0,0,0,0.32)'); gg.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = gg; c.fillRect(px(ax) - r1, py(0.445) - r1, 2 * r1, 2 * r1);
+    }
+    c.fillStyle = '#23262a'; c.fillRect(0, py(0.70), W, H - py(0.70));                 // накладка порога
+    c.fillStyle = 'rgba(20,24,22,0.8)';
+    for (const x of [1.44, 0.36, -0.94]) c.fillRect(px(x) - 1.5, py(1.45), 3, py(0.64) - py(1.45));   // швы дверей
+    c.fillRect(px(-1.265) - 3, 0, 6, H);                                                 // зазор кабина — кузов
+    c.fillStyle = '#1a1b1c'; c.fillRect(0, 0, px(-1.265), py(1.40));                     // чёрный колпак на борту кузова
+    c.strokeStyle = 'rgba(20,24,22,0.7)'; c.lineWidth = 2; c.strokeRect(px(-2.02), py(1.31), 0.17 * m, 0.17 * m);   // лючок бака
+    txt(c, 'TRD 4x4', px(-2.4), py(1.30), 30, '#3c4442', flip, 'italic bold');
+    txt(c, 'OFF ROAD', px(-2.4), py(1.225), 13, '#3c4442', flip, 'bold', 2);
+    txt(c, 'TUNDRA', px(0.95), py(0.90), 15, '#454d4a', flip, 'bold', 2);
+  }, { roughness: 0.35, metalness: 0.2 });
+  MAT.tdSideR = sideMat(1); MAT.tdSideL = sideMat(-1);
+  // --- остекление кабины сбоку: стёкла и чёрные стойки; область x −1,35…1,55, y 1,30…2,05 ---
+  const WX0 = -1.35, WXW = 2.9, WY0 = 1.30, WYH = 0.75;
+  MAT.tdWin = decalMat(1024, 264, (c, W, H) => {
+    const px = x => (x - WX0) / WXW * W, py = y => H - (y - WY0) / WYH * H;
+    c.fillStyle = '#0d0e10'; c.fillRect(0, 0, W, H);
+    const pane = pts => { c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(px(x), py(y)) : c.moveTo(px(x), py(y))); c.closePath(); c.fill(); };
+    const g = c.createLinearGradient(0, py(1.98), 0, py(1.5)); g.addColorStop(0, '#45555f'); g.addColorStop(0.45, '#1d262d'); g.addColorStop(1, '#10161b');
+    c.fillStyle = g;
+    pane([[0.44, 1.50], [1.28, 1.50], [0.77, 1.94], [0.44, 1.94]]);        // окно передней двери
+    pane([[-0.86, 1.50], [0.30, 1.50], [0.30, 1.94], [-0.86, 1.94]]);      // окно задней двери
+    pane([[-1.12, 1.50], [-0.96, 1.50], [-0.96, 1.94], [-1.03, 1.94]]);    // стекло за задней дверью
+    c.fillStyle = '#0d0e10'; c.fillRect(px(-0.58) - 2, py(1.94), 4, py(1.50) - py(1.94));   // разделитель форточки задней двери
+    c.fillStyle = 'rgba(255,255,255,0.07)'; c.fillRect(0, py(1.80), W, 2);                 // блик
+  }, { roughness: 0.12, metalness: 0.45 });
+  // --- решётка: соты, надпись TOYOTA, три оранжевых габарита (1,78 × 0,54 м) ---
+  MAT.tdGrille = lit(decalMat(1024, 308, (c, W, H) => {
+    c.fillStyle = '#0a0a0a'; c.fillRect(0, 0, W, H);
+    const r = 13, dx = r * 1.732, dy = r * 1.5; c.strokeStyle = '#303132'; c.lineWidth = 3;
+    for (let row = 0, y = 78; y < H + r; row++, y += dy) for (let x = (row % 2) * dx / 2; x < W + r; x += dx) {
+      c.beginPath(); for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3; k ? c.lineTo(x + r * Math.cos(a), y + r * Math.sin(a)) : c.moveTo(x + r * Math.cos(a), y + r * Math.sin(a)); }
+      c.closePath(); c.stroke();
+    }
+    c.fillStyle = '#131313'; c.fillRect(0, 0, W, 66); c.fillStyle = '#2c2c2c'; c.fillRect(0, 64, W, 4);
+    txt(c, 'TOYOTA', W / 2, 40, 42, '#f4f4f4', false, 'bold', 10);
+    c.fillStyle = '#ff9a1e'; for (const x of [W * 0.22, W * 0.5, W * 0.78]) { c.beginPath(); c.roundRect(x - 34, 4, 68, 12, 6); c.fill(); }
+    c.strokeStyle = '#3c3d3e'; c.lineWidth = 6; c.strokeRect(3, 3, W - 6, H - 6);
+    txt(c, 'TRD', W - 110, 140, 26, '#d0d3d5', false, 'bold', 4);
+  }, { roughness: 0.5 }), 0.45);
+  // --- задний борт: надпись TUNDRA, ручка с камерой (1,80 × 0,64 м) ---
+  MAT.tdGate = decalMat(1024, 364, (c, W, H) => {
+    c.fillStyle = '#8a9388'; c.fillRect(0, 0, W, H);
+    const g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, 'rgba(255,255,255,0.07)'); g.addColorStop(1, 'rgba(0,0,0,0.14)'); c.fillStyle = g; c.fillRect(0, 0, W, H);
+    c.fillStyle = '#121314'; c.beginPath(); c.roundRect(W / 2 - 150, 16, 300, 40, 8); c.fill();
+    c.fillStyle = 'rgba(0,0,0,0.25)'; c.fillRect(0, 62, W, 3);
+    txt(c, 'TUNDRA', W / 2, H * 0.56, 96, '#5b6360', false, 'bold', 16);
+    c.fillStyle = '#2a2c2d'; c.fillRect(0, H - 26, W, 26);
+  }, { roughness: 0.35, metalness: 0.2 });
+  // --- кунг (канопи): борт с окном у кабины и распашной створкой (1,58 × 0,50 м), зеркально для левого борта ---
+  const canopySide = s => decalMat(1024, 324, (c, W, H) => {
+    if (s < 0) { c.translate(W, 0); c.scale(-1, 1); }
+    const m = W / 1.58;
+    c.fillStyle = '#161718'; c.fillRect(0, 0, W, H);
+    const glass = (x, y, w, h, r) => { const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, '#4a5862'); g.addColorStop(0.5, '#212b32'); g.addColorStop(1, '#141b20'); c.fillStyle = g; c.beginPath(); c.roundRect(x, y, w, h, r); c.fill(); };
+    glass(W - 0.46 * m, 0.05 * m, 0.41 * m, 0.40 * m, 10);                               // окно у кабины
+    c.fillStyle = '#1e1f21'; c.fillRect(0.03 * m, 0.03 * m, 1.04 * m, 0.44 * m);           // панель створки
+    c.strokeStyle = '#2e2f31'; c.lineWidth = 4; c.strokeRect(0.03 * m, 0.03 * m, 1.04 * m, 0.44 * m);
+    glass(0.50 * m, 0.08 * m, 0.30 * m, 0.22 * m, 8);                                      // окошко створки
+    c.fillStyle = '#4b4d50'; for (const x of [0.28, 0.90]) { c.beginPath(); c.roundRect(x * m, 0.23 * m, 0.08 * m, 0.06 * m, 6); c.fill(); }   // замки
+    c.fillStyle = '#ff8a1e'; c.fillRect(0.02 * m, 0.012 * m, 0.09 * m, 0.02 * m);          // оранжевый габарит
+  }, { roughness: 0.5 });
+  MAT.tdCanR = canopySide(1); MAT.tdCanL = canopySide(-1);
+  MAT.tdCanB = decalMat(1024, 286, (c, W, H) => {   // задняя дверь кунга: стекло, ручка, стоп-сигнал (1,72 × 0,48 м)
+    c.fillStyle = '#161718'; c.fillRect(0, 0, W, H);
+    const g = c.createLinearGradient(0, 40, 0, 230); g.addColorStop(0, '#48565f'); g.addColorStop(0.5, '#1f282f'); g.addColorStop(1, '#131a1f');
+    c.fillStyle = g; c.beginPath(); c.roundRect(110, 42, W - 220, 185, 12); c.fill();
+    c.fillStyle = '#4b4d50'; c.beginPath(); c.roundRect(W / 2 - 60, 248, 120, 22, 8); c.fill();
+    c.fillStyle = '#ff2a1e'; c.fillRect(W / 2 - 140, 10, 280, 12);
+  }, { roughness: 0.5 });
+  // --- шина 35x12.5R17: один шаг протектора (повтор 40 раз по окружности), по вертикали — профиль от борта до борта ---
+  MAT.tdTire = decalMat(128, 512, (c, W, H) => {
+    c.fillStyle = '#161616'; c.fillRect(0, 0, W, H);
+    c.fillStyle = '#0a0a0a'; c.fillRect(0, 150, W, 212);                     // канавки протектора и плеч
+    const blk = (x, y, w, h, col = '#2a2a2a') => { c.fillStyle = col; c.beginPath(); c.roundRect(x, y, w, h, 6); c.fill(); };
+    blk(8, 226, 54, 60); blk(70, 200, 52, 44); blk(70, 268, 52, 44);          // центральные блоки шахматкой
+    blk(6, 296, 58, 50); blk(6, 166, 58, 50);                                  // промежуточные
+    blk(68, 150, 60, 42, '#262626'); blk(68, 320, 60, 42, '#262626');          // плечевые блоки
+    blk(0, 112, 56, 46, '#222'); blk(0, 354, 56, 46, '#222');                  // грунтозацепы на боковине
+    c.fillStyle = '#1d1d1d'; for (const y of [86, 96, 416, 426]) c.fillRect(0, y, W, 3);   // рёбра боковины
+    c.fillStyle = '#101010'; c.fillRect(0, 0, W, 34); c.fillRect(0, H - 34, W, 34);        // борт у диска
+  }, { roughness: 0.92 });
+  MAT.tdTire.map.wrapS = THREE.RepeatWrapping; MAT.tdTire.map.repeat.set(40, 1); MAT.tdTire.map.needsUpdate = true;
+  MAT.tdBundu = decalMat(256, 64, (c, W, H) => { c.fillStyle = '#898c90'; c.fillRect(0, 0, W, H); txt(c, 'BUNDU', W / 2, H / 2, 34, '#f2f2f2', false, 'bold', 3); }, { roughness: 0.45 });
+  MAT.tdRoam = decalMat(256, 64, (c, W, H) => { c.fillStyle = '#1b1b1b'; c.fillRect(0, 0, W, H); txt(c, 'ROAM', W / 2, H / 2, 40, '#e8e8e8', false, 'bold', 6); }, { roughness: 0.85 });
+}
+// раскладывает треугольники вытянутой геометрии по материалам: pick(cx, cy, cz, nx, ny, nz) → [материал, uvФункция?]
+const tdSplit = (geo, pick) => {
+  const g = geo.index ? geo.toNonIndexed() : geo, P = g.attributes.position, N = g.attributes.normal, out = {};
+  for (let i = 0; i < P.count; i += 3) {
+    const cx = (P.getX(i) + P.getX(i + 1) + P.getX(i + 2)) / 3, cy = (P.getY(i) + P.getY(i + 1) + P.getY(i + 2)) / 3, cz = (P.getZ(i) + P.getZ(i + 1) + P.getZ(i + 2)) / 3;
+    const [mat, uvf] = pick(cx, cy, cz, N.getX(i), N.getY(i), N.getZ(i)), o = out[mat] ??= { pos: [], nrm: [], uv: [], uvf };
+    for (let k = 0; k < 3; k++) { o.pos.push(P.getX(i + k), P.getY(i + k), P.getZ(i + k)); o.nrm.push(N.getX(i + k), N.getY(i + k), N.getZ(i + k)); if (uvf) o.uv.push(...uvf(P.getX(i + k), P.getY(i + k))); }
+  }
+  return Object.entries(out).map(([mat, o]) => {
+    const q = new THREE.BufferGeometry(); q.setAttribute('position', new THREE.Float32BufferAttribute(o.pos, 3)); q.setAttribute('normal', new THREE.Float32BufferAttribute(o.nrm, 3));
+    if (o.uvf) { q.setAttribute('uv', new THREE.Float32BufferAttribute(o.uv, 2)); q.userData.ownUV = true; }
+    return [q, mat];
+  });
+};
+BUILD.tundra = o => {
+  const r = [], Y0 = o.ground ?? TERR;          // колёса стоят на газоне (TERR), в гараже — ground: 0
+  const dec = (...a) => { const d = decal(...a); d[0].userData.ownUV = true; return d; };   // наклейка со своей UV (mergeByMat её не пересчитает)
+  const AXF = 1.985, AXR = -1.715, AXY = 0.445, TRK = 0.865;   // оси: передняя, задняя (база 3,70), высота оси, половина колеи
+  const EXT = (sh, d, bs, bt, seg = 4, cs = 14) => new THREE.ExtrudeGeometry(sh, { depth: d, bevelEnabled: true, bevelThickness: bt, bevelSize: bs, bevelSegments: seg, curveSegments: cs });
+  // ---------- нижний кузов: профиль (ужат на 0,05 — бевел вернёт размер), арки вырезаны дугами ----------
+  const arch = (sh, cx, rad, yb) => { const dx = Math.sqrt(rad * rad - (yb - AXY) ** 2); sh.lineTo(cx - dx, yb); sh.absarc(cx, AXY, rad, Math.atan2(yb - AXY, -dx), Math.atan2(yb - AXY, dx), true); };
+  const bp = new THREE.Shape(); bp.moveTo(-2.85, 0.69);
+  arch(bp, AXR, 0.62, 0.69); arch(bp, AXF, 0.62, 0.69);
+  for (const [x, y] of [[2.75, 0.69], [2.80, 0.76], [2.80, 1.21], [2.74, 1.26], [1.56, 1.32], [1.48, 1.40], [-2.85, 1.40]]) bp.lineTo(x, y);
+  bp.closePath();
+  const body = EXT(bp, 1.87, 0.05, 0.08).translate(0, 0, -0.935);          // ширина 2,03
+  const sideUV = (x, y) => [(x + 3.0) / 6.0, (y - 0.40) / 1.15];
+  r.push(...tdSplit(body, (x, y, z, nx, ny, nz) => {
+    if (Math.abs(nz) > 0.95) return [nz > 0 ? 'tdSideR' : 'tdSideL', sideUV];
+    if (ny < -0.8) return ['tdUnder'];
+    if (y < 1.1 && (Math.hypot(x - AXF, y - AXY) < 0.66 || Math.hypot(x - AXR, y - AXY) < 0.66)) return ['tdUnder'];   // ниши колёс
+    return ['tdPaint'];
+  }));
+  // ---------- остекление кабины: лобовое — крыша — заднее, бока — текстура со стойками ----------
+  const gp = new THREE.Shape(); gp.moveTo(1.52, 1.32); gp.lineTo(0.80, 1.98); gp.lineTo(-1.00, 1.98); gp.lineTo(-1.24, 1.32); gp.closePath();
+  const glassH = EXT(gp, 1.70, 0.05, 0.08).translate(0, 0, -0.85);         // ширина 1,86, крыша 2,03
+  const winUV = (x, y) => [(x + 1.35) / 2.9, (y - 1.30) / 0.75];
+  r.push(...tdSplit(glassH, (x, y, z, nx, ny, nz) => {
+    if (ny < -0.5) return ['tdUnder'];
+    if (Math.abs(nz) > 0.95) return ['tdWin', winUV];
+    if (Math.abs(nz) > 0.25) return [(x > 0.55 || x < -0.85 || ny < 0.4) ? 'tdGloss' : 'tdPaint'];   // стойки A/C чёрные, кромка крыши — краска
+    if (nx > 0.45 || nx < -0.6) return ['tdGlass'];
+    if (ny > 0.5) return ['tdPaint'];
+    return ['tdGloss'];
+  }));
+  r.push([Bx(0.09, 0.025, 1.72, 1.44, 1.43, 0), 'tdGloss']);                 // жабо под лобовым
+  for (const s of [-1, 1]) r.push([Bx(0.02, 0.015, 0.6, 1.40, 1.455, s * 0.38).rotateY(s * 0.25), 'tdGloss']);   // дворники
+  // ---------- капот TRD: чёрная вставка с воздухозаборником ----------
+  const hs = Math.atan2(-0.06, 1.18);                                        // уклон капота
+  r.push([RB(1.05, 0.02, 0.82, 0.03, 0, 0, 0, 3).rotateZ(hs).translate(2.12, 1.35, 0), 'tdTrim']);
+  r.push([RB(0.44, 0.07, 0.42, 0.03, 0, 0, 0, 3).rotateZ(hs).translate(2.42, 1.35, 0), 'tdTrim']);
+  r.push([Bx(0.02, 0.035, 0.34, 0.22, 0.03, 0).rotateZ(hs).translate(2.42, 1.35, 0), 'tdGloss']);   // пасть заборника
+  // ---------- решётка и фары ----------
+  r.push(dec(1.78, 0.54, 'tdGrille', 2.86, 1.00, 0, 0, Math.PI / 2));
+  for (const s of [-1, 1]) {
+    r.push([Bx(0.30, 0.22, 0.44, 2.72, 1.04, s * 0.78), 'tdGloss']);                       // корпус фары
+    r.push([Bx(0.02, 0.025, 0.40, 2.875, 1.225, s * 0.78), 'tdWhiteL']);                   // ходовой огонь — горизонталь буквы Г
+    r.push([Bx(0.02, 0.17, 0.03, 2.875, 1.06, s * 0.965), 'tdWhiteL']);                    // вертикаль у крыла
+    for (const z of [0.64, 0.80]) r.push([Cy(0.045, 0.02, 0, 0, 0, 0.045, 16).rotateZ(-Math.PI / 2).translate(2.865, 1.12, s * z), 'tdWhiteL']);   // линзы
+    r.push([Bx(0.02, 0.02, 0.18, 2.875, 1.03, s * 0.70), 'tdAmber']);                       // поворотник
+  }
+  // ---------- силовой стальной бампер: фасонный профиль со скосами, лебёдка за клюзом, дуга с 4 фарами ----------
+  const bprof = new THREE.Shape();
+  for (const [i, [x, y]] of [[2.58, 0.46], [2.93, 0.46], [2.99, 0.56], [2.99, 0.80], [2.93, 0.88], [2.58, 0.88]].entries()) i ? bprof.lineTo(x, y) : bprof.moveTo(x, y);
+  bprof.closePath();
+  r.push([EXT(bprof, 1.28, 0.01, 0.01, 1).translate(0, 0, -0.64), 'tdSteel'], [Bx(0.40, 0.03, 1.44, 2.74, 0.88, 0), 'tdSteel'], [Bx(0.6, 0.25, 1.1, 2.40, 0.50, 0), 'tdUnder']);
+  for (const s of [-1, 1]) {
+    r.push([EXT(bprof, 0.50, 0.01, 0.01, 1).translate(-2.78, 0, -0.25).rotateY(-s * 0.40).translate(2.78, 0, s * 0.86), 'tdSteel']);   // скошенные крылья
+    r.push([Bx(0.14, 0.05, 0.06, 2.92, 0.37, s * 0.45), 'tdRed'], [new THREE.TorusGeometry(0.035, 0.012, 6, 16).translate(3.0, 0.40, s * 0.45), 'tdRed']);   // буксирные проушины
+    r.push([Cy(0.025, 0.14, 2.94, 0.91, s * 0.56), 'tdSteel']);                                             // стойки дуги
+  }
+  r.push([Bx(0.02, 0.16, 0.42, 2.995, 0.56, 0), 'tdGloss'], [Bx(0.02, 0.10, 0.30, 3.0, 0.60, 0), 'steel'], [Bx(0.012, 0.04, 0.20, 3.012, 0.63, 0), 'tdGloss']);   // ниша лебёдки, клюз с прорезью
+  r.push([Cy(0.07, 0.40, 0, 0, 0, 0.07, 14).rotateX(Math.PI / 2).translate(2.82, 0.64, -0.20), 'tdUnder']);   // барабан лебёдки за клюзом
+  r.push([Bx(0.08, 0.045, 0.05, 3.04, 0.52, 0), 'steel'], [Bx(0.06, 0.02, 0.02, 3.0, 0.555, 0), 'steel']);   // крюк троса
+  r.push([Cy(0.025, 1.26, 0, 0, 0, 0.025, 10).rotateX(Math.PI / 2).translate(2.94, 1.05, -0.63), 'tdSteel']);   // перекладина дуги
+  const pod = (x, y, z, mat, rad = 0.072) => r.push([Cy(rad, 0.09, 0, 0, 0, rad * 0.9, 14).rotateZ(-Math.PI / 2).translate(x - 0.09, y, z), 'tdGloss'],
+    [Cy(rad * 0.8, 0.012, 0, 0, 0, rad * 0.8, 14).rotateZ(-Math.PI / 2).translate(x, y, z), mat]);   // круглая фара: корпус + линза
+  [[-0.42, 'tdAmber'], [-0.22, 'tdWhiteL'], [0.22, 'tdWhiteL'], [0.42, 'tdAmber']].forEach(([z, m]) => pod(2.98, 1.05, z, m));
+  // ---------- расширители арок, подножки, ручки, зеркала ----------
+  for (const s of [-1, 1]) {
+    for (const cx of [AXF, AXR]) {
+      const Ro = 0.69, Ri = 0.555, a0 = Math.asin((0.64 - AXY) / Ro), a1 = Math.asin((0.64 - AXY) / Ri), sh = new THREE.Shape();
+      sh.absarc(cx, AXY, Ro, Math.PI - a0, a0, true); sh.absarc(cx, AXY, Ri, a1, Math.PI - a1, false); sh.closePath();
+      r.push([EXT(sh, 0.05, 0.015, 0.02, 2, 26).translate(0, 0, s > 0 ? 1.0 : -1.09), 'tdTrim']);
+    }
+    r.push([Bx(2.0, 0.045, 0.21, 0.15, 0.50, s * 1.06), 'tdTrim'], [Bx(1.9, 0.008, 0.15, 0.15, 0.545, s * 1.07), 'tdRack']);   // подножка
+    for (const x of [-0.6, 0.15, 0.9]) r.push([Bx(0.05, 0.14, 0.16, x, 0.52, s * 0.97), 'tdUnder']);
+    for (const x of [0.62, -0.70]) r.push([RB(0.20, 0.03, 0.035, 0.01, x, 1.19, s * 1.03), 'tdGloss']);                    // ручки дверей
+    r.push([Bx(0.07, 0.045, 0.16, 1.24, 1.49, s * 1.04), 'tdTrim'], [RB(0.15, 0.17, 0.24, 0.03, 1.20, 1.47, s * 1.11, 3), 'tdTrim']);   // зеркало
+    r.push([Bx(0.01, 0.13, 0.20, 1.12, 1.49, s * 1.11), 'tdGlass'], [Bx(0.08, 0.018, 0.012, 1.22, 1.54, s * 1.233), 'tdAmber']);
+  }
+  // ---------- кунг (чёрный алюминиевый канопи) ----------
+  r.push([RB(1.66, 0.59, 1.92, 0.04, -2.10, 1.45, 0, 3), 'tdTrim']);
+  for (const s of [-1, 1]) r.push(dec(1.58, 0.50, s > 0 ? 'tdCanR' : 'tdCanL', -2.10, 1.745, s * 0.963, 0, s > 0 ? 0 : Math.PI));
+  r.push(dec(1.72, 0.48, 'tdCanB', -2.933, 1.75, 0, 0, -Math.PI / 2));
+  // ---------- задний борт, фонари, бампер ----------
+  r.push(dec(1.80, 0.64, 'tdGate', -2.905, 1.10, 0, 0, -Math.PI / 2));
+  for (const s of [-1, 1]) {
+    r.push([Bx(0.09, 0.52, 0.17, -2.92, 0.90, s * 0.95), 'tdTailDark']);                  // корпус фонаря на углу
+    r.push([Bx(0.012, 0.46, 0.035, -2.97, 0.93, s * 0.885), 'tdTail'], [Bx(0.012, 0.04, 0.16, -2.97, 1.37, s * 0.95), 'tdTail']);   // Г-образный огонь
+    r.push([Bx(0.07, 0.035, 0.012, -2.92, 1.37, s * 1.04), 'tdTail']);                     // продолжение на борт
+    r.push([Bx(0.01, 0.035, 0.14, -2.975, 0.60, s * 0.82), 'tdTail']);                     // катафот
+  }
+  r.push([Bx(0.10, 0.26, 2.02, -2.92, 0.50, 0), 'tdTrim'], [Bx(0.12, 0.015, 0.8, -2.93, 0.76, 0), 'tdRack']);   // бампер и ступенька
+  r.push([Bx(0.14, 0.07, 0.07, -2.99, 0.38, 0), 'tdUnder'], [Bx(0.02, 0.05, 0.05, -3.055, 0.39, 0), 'black']);   // фаркоп
+  // ---------- багажники-платформы: над кабиной (дуга с 9 фарами, кейсы) и над кунгом (бокс, LED, маркиза) ----------
+  const rack = (x0, x1, yb) => {
+    const L = x1 - x0, cx = (x0 + x1) / 2;
+    for (const s of [-1, 1]) { r.push([Bx(L, 0.05, 0.05, cx, yb + 0.05, s * 0.78), 'tdRack']); for (const x of [x0 + 0.15, cx, x1 - 0.15]) r.push([Bx(0.06, 0.05, 0.06, x, yb, s * 0.78), 'tdRack']); }
+    for (const x of [x0 + 0.02, x1 - 0.02]) r.push([Bx(0.04, 0.05, 1.6, x, yb + 0.05, 0), 'tdRack']);
+    const n = Math.round(L / 0.16); for (let i = 1; i < n; i++) r.push([Bx(0.03, 0.02, 1.5, x0 + L * i / n, yb + 0.08, 0), 'tdRack']);
+  };
+  rack(-0.95, 0.62, 2.03); rack(-2.88, -1.32, 2.04);
+  r.push([Bx(0.06, 0.05, 1.56, 0.70, 2.07, 0), 'tdRack']);                                  // планка под фары
+  for (let i = 0; i < 9; i++) pod(0.74, 2.17, -0.66 + i * 0.165, i % 2 ? 'tdWhiteL' : 'tdAmber', 0.07);
+  for (const s of [-1, 1]) {                                                                 // кейсы ROAM с оранжевыми защёлками
+    r.push([RB(0.50, 0.20, 0.42, 0.025, -0.30, 2.13, s * 0.36, 3), 'tdCase'], [RB(0.53, 0.09, 0.45, 0.025, -0.30, 2.33, s * 0.36, 3), 'tdCase']);
+    for (const dx of [-0.14, 0.14]) r.push([Bx(0.07, 0.06, 0.015, -0.30 + dx, 2.30, s * 0.585), 'tdOrange']);
+    r.push([Bx(0.015, 0.03, 0.14, -0.30 + s * 0.27, 2.36, s * 0.36), 'tdRack']);
+    r.push(dec(0.16, 0.04, 'tdRoam', -0.30, 2.375, s * 0.586, 0, s > 0 ? 0 : Math.PI));   // шильдик ROAM
+  }
+  const bb = new THREE.Shape();                                                             // бокс Bundu — обтекаемый профиль
+  for (const [i, [x, y]] of [[-0.92, 0.02], [0.62, 0.0], [0.92, 0.08], [0.88, 0.21], [0.45, 0.28], [-0.55, 0.28], [-0.92, 0.19]].entries()) i ? bb.lineTo(x, y) : bb.moveTo(x, y);
+  bb.closePath();
+  r.push([EXT(bb, 0.78, 0.04, 0.04, 4).translate(-2.0, 2.15, 0.10 - 0.39), 'tdBox']);
+  r.push([RB(1.76, 0.025, 0.88, 0.006, -2.0, 2.26, 0.10), 'tdTrim']);                      // уплотнитель крышки
+  for (const s of [-1, 1]) r.push(dec(0.26, 0.065, 'tdBundu', -1.9, 2.30, 0.10 + s * 0.433, 0, s > 0 ? 0 : Math.PI));
+  r.push([Bx(0.025, 0.02, 1.4, -2.90, 2.11, 0), 'tdWhiteL']);                                  // LED-полоса на платформе
+  r.push([Cy(0.085, 2.0, 0, 0, 0, 0.085, 18).rotateZ(-Math.PI / 2).translate(-2.85, 2.14, -0.98), 'tdFabric']);   // скатанная маркиза слева
+  for (const x of [-2.6, -1.1]) r.push([Bx(0.05, 0.05, 0.22, x, 2.12, -0.88), 'tdRack'], [Cy(0.09, 0.02, 0, 0, 0, 0.09, 18).rotateZ(-Math.PI / 2).translate(x < -2 ? -2.86 : -0.86, 2.14, -0.98), 'tdRack']);
+  // ---------- днище: рама, передняя независимая подвеска с жёлтыми пружинами, задний мост, кардан, выхлоп ----------
+  r.push([Bx(4.4, 0.14, 1.0, -0.2, 0.33, 0), 'tdUnder'], [Bx(0.9, 0.22, 0.6, -0.6, 0.34, -0.35), 'tdUnder'], [Cy(0.04, 2.6, 0, 0, 0).rotateZ(-Math.PI / 2).translate(-1.6, 0.42, 0.1), 'tdUnder']);
+  r.push([Cy(0.05, 1.5, 0, -0.75, 0).rotateX(Math.PI / 2).translate(AXR, AXY, 0), 'tdUnder'], [Sp(0.17, AXR, AXY, 0.1), 'tdUnder'], [Sp(0.14, AXF, AXY, 0.15), 'tdUnder']);
+  for (const s of [-1, 1]) {
+    r.push([Bx(0.35, 0.05, 0.45, AXF, 0.36, s * 0.45), 'tdUnder'], [Cy(0.045, 0.36, AXF - 0.1, 0.42, s * 0.55), 'tdUnder']);
+    const pts = []; for (let i = 0; i <= 40; i++) { const a = i / 40 * Math.PI * 7; pts.push([AXF - 0.1 + 0.07 * Math.cos(a), 0.47 + i / 40 * 0.26, s * 0.55 + 0.07 * Math.sin(a)]); }
+    r.push(tube(pts, 0.011, 'tdCoil', 80));
+    r.push([Cy(0.03, 0.40, 0, 0, 0).rotateX(0.3).translate(AXR + 0.18, 0.40, s * 0.62), 'tdUnder'], [Cy(0.07, 0.24, AXR - 0.15, 0.46, s * 0.52), 'tdUnder']);
+  }
+  r.push([Cy(0.035, 2.6, 0, 0, 0).rotateZ(-Math.PI / 2).translate(-2.6, 0.40, 0.55), 'tdUnder'], [Cy(0.045, 0.16, 0, 0, 0).rotateX(Math.PI / 2).translate(-2.35, 0.40, 0.80), 'steel']);
+  // ---------- колёса: шина 35" (лейт-профиль с протектором), бедлок-диск с 24 болтами ----------
+  const wheel = (cx, s) => {
+    const p = [], prof = [[0.215, -0.125], [0.30, -0.15], [0.40, -0.15], [0.43, -0.155], [0.445, -0.125], [0.445, 0], [0.445, 0.125], [0.43, 0.155], [0.40, 0.15], [0.30, 0.15], [0.215, 0.125]];
+    const tire = new THREE.LatheGeometry(prof.map(([a, b]) => new THREE.Vector2(a, b)), 56); tire.userData.ownUV = true; p.push([tire, 'tdTire']);
+    p.push([Cy(0.215, 0.26, 0, -0.13, 0, 0.215, 40), 'tdRim'], [Cy(0.19, 0.03, 0, 0.06, 0, 0.19, 40), 'tdRim'], [Cy(0.075, 0.07, 0, 0.08, 0, 0.075, 20), 'tdRim'], [Cy(0.035, 0.015, 0, 0.15, 0, 0.035, 12), 'tdGloss']);
+    for (let i = 0; i < 8; i++) p.push([Bx(0.065, 0.05, 0.12, 0, 0.09, 0.11).rotateY(i * Math.PI / 4), 'tdRim']);
+    for (let i = 0; i < 6; i++) p.push([Cy(0.012, 0.015, 0.05 * Math.cos(i * Math.PI / 3), 0.15, 0.05 * Math.sin(i * Math.PI / 3), 0.012, 6), 'tdGloss']);
+    p.push([new THREE.TorusGeometry(0.196, 0.022, 8, 48).rotateX(Math.PI / 2).translate(0, 0.135, 0), 'tdRim']);
+    for (let i = 0; i < 24; i++) { const a = i / 24 * Math.PI * 2; p.push([Cy(0.011, 0.016, 0.196 * Math.cos(a), 0.148, 0.196 * Math.sin(a), 0.011, 6), 'tdGloss']); }
+    for (const [g] of p) g.rotateX(s > 0 ? Math.PI / 2 : -Math.PI / 2).translate(cx, AXY, s * TRK);
+    r.push(...p);
+  };
+  for (const s of [-1, 1]) { wheel(AXF, s); wheel(AXR, s); }
+  // ---------- сборка: один меш на материал, поворот +X → +Z, посадка на землю ----------
+  return mergeByMat(r).map(([g, m, k]) => [g.rotateY(-Math.PI / 2).translate(0, Y0, 0), m, k]);
+};
+// ===================== Audi S8 (D5, рестайлинг 2022–2024): матовый Emerald Green, пакет «чёрная оптика» =====================
+// Строится с длиной по X (+X — нос, профиль в плоскости XY, ширина по Z), в конце поворачивается: +X → +Z (нос предмета).
+// Размеры: длина 5,19, ширина 1,95 (с зеркалами 2,13), высота 1,47, база 3,00, свесы 0,95/1,24, клиренс 0,12, колёса 265/35 R21.
+Object.assign(MAT, {
+  s8Body: std({ color: 0x4a5a3f, roughness: 0.6, metalness: 0 }),                 // матовая краска Emerald Green
+  s8Black: std({ color: 0x121315, roughness: 0.3, metalness: 0.3 }),              // глянцевый чёрный (оптика, рамки, стойки)
+  s8Trim: std({ color: 0x1b1c1e, roughness: 0.75, metalness: 0.05 }),            // чёрный пластик: днище, диффузор, сплиттер
+  s8Glass: new THREE.MeshStandardMaterial({ color: 0x0a0e13, roughness: 0.04, metalness: 0.55, transparent: true, opacity: 0.82 }),
+  s8RoofGlass: std({ color: 0x06080b, roughness: 0.04, metalness: 0.7 }),         // панорамная крыша
+  s8Rim: std({ color: 0x14151a, roughness: 0.28, metalness: 0.65, side: THREE.DoubleSide }),   // чёрные диски (обод виден изнутри сквозь спицы)
+  s8Red: std({ color: 0xc4121c, roughness: 0.4 }),                                // суппорты
+  s8Disc: std({ color: 0x8b8e93, roughness: 0.35, metalness: 0.9 }),              // тормозные диски
+  s8Seat: std({ color: 0x13151a, roughness: 0.95 }),                              // силуэты салона
+  s8Mirror: std({ color: 0xcfd6dc, roughness: 0.03, metalness: 0.95 }),
+  s8Exhaust: std({ color: 0x2b2d31, roughness: 0.25, metalness: 0.85 }),
+});
+// текстуры машины рисуются один раз при первой сборке
+const S8 = { tex: null };
+const s8Tex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
+// материал с рисунком; em — сила свечения (рисунок сам служит картой свечения: белое/красное светится, чёрное — нет)
+const s8Mat = (t, o = {}, em = 0) => std({ map: t, roughness: 0.5, ...(em ? { emissive: 0xffffff, emissiveMap: t, emissiveIntensity: em } : {}), ...o });
+// соты (решётка, воздухозаборники): шестиугольные ячейки с шагом step (px)
+const s8Honey = (g, x0, y0, x1, y1, step, cell = '#1d1e21', gap = '#040405') => {
+  g.fillStyle = gap; g.fillRect(x0, y0, x1 - x0, y1 - y0); g.fillStyle = cell;
+  const r = step * 0.42, h = step * 0.866;
+  for (let j = -1, row = 0; y0 + j * h < y1 + h; j++, row++) for (let i = -1; x0 + i * step < x1 + step; i++) {
+    const cx = x0 + i * step + (row % 2 ? step / 2 : 0), cy = y0 + j * h;
+    g.beginPath(); for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3; g[k ? 'lineTo' : 'moveTo'](cx + r * Math.cos(a), cy + r * Math.sin(a)); }
+    g.closePath(); g.fill();
+  }
+};
+const s8Rings = (g, cx, cy, r, lw, color) => { g.strokeStyle = color; g.lineWidth = lw; for (let k = -1.5; k <= 1.5; k++) { g.beginPath(); g.arc(cx + k * r * 1.22, cy, r, 0, Math.PI * 2); g.stroke(); } };
+function s8Textures() {
+  const T = {};
+  // борт кузова: UV = (x, y) профиля в метрах; холст покрывает x −2,7…2,7, y 0…1,6
+  const SX = 2048, SY = 640, px = x => (x + 2.7) / 5.4 * SX, py = y => (1 - y / 1.6) * SY;
+  T.side = s8Tex(SX, SY, g => {
+    g.fillStyle = '#4a5a3f'; g.fillRect(0, 0, SX, SY);
+    let gr = g.createLinearGradient(0, py(0.62), 0, py(0.2)); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.35)');
+    g.fillStyle = gr; g.fillRect(0, py(0.62), SX, SY);                                   // тень к порогу
+    gr = g.createLinearGradient(0, py(1.0), 0, py(0.935)); gr.addColorStop(0, 'rgba(255,255,255,0.10)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, py(1.0), SX, py(0.935) - py(1.0));                   // блик на плече
+    // под плечевой гранью (объёмная накладка на y 0,90–0,935) — мягкая тень
+    gr = g.createLinearGradient(0, py(0.9), 0, py(0.8)); gr.addColorStop(0, 'rgba(0,0,0,0.3)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(px(-2.45), py(0.9), px(2.3) - px(-2.45), py(0.8) - py(0.9));
+    // тень над колёсными арками (кромка арки)
+    for (const ax of [1.65, -1.35]) { const rg = g.createRadialGradient(px(ax), py(0.36), 0.47 / 5.4 * SX, px(ax), py(0.36), 0.56 / 5.4 * SX);
+      rg.addColorStop(0, 'rgba(0,0,0,0.45)'); rg.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = rg; g.fillRect(px(ax - 0.6), py(0.95), 1.2 / 5.4 * SX, py(0.2) - py(0.95)); }
+    // швы дверей
+    g.strokeStyle = 'rgba(10,14,8,0.85)'; g.lineWidth = 3; g.lineCap = 'round';
+    const seam = (x0, y0, x1, y1) => { g.beginPath(); g.moveTo(px(x0), py(y0)); g.lineTo(px(x1), py(y1)); g.stroke(); };
+    seam(0.74, 0.33, 0.84, 0.99); seam(-0.26, 0.33, -0.24, 0.99); seam(-1.14, 0.33, -1.12, 0.99);
+    seam(0.74, 0.33, -1.14, 0.33);                                                          // низ дверей
+    // утопленные ручки
+    g.fillStyle = 'rgba(8,10,6,0.75)'; for (const hx of [0.0, -0.86]) { g.beginPath(); g.roundRect(px(hx - 0.1), py(0.9), 0.2 / 5.4 * SX, 0.035 / 1.6 * SY, 6); g.fill(); }
+    g.fillStyle = 'rgba(255,255,255,0.12)'; for (const hx of [0.0, -0.86]) g.fillRect(px(hx - 0.1), py(0.9) - 2, 0.2 / 5.4 * SX, 2);
+    // порог: чёрная накладка
+    g.fillStyle = '#17191a'; g.fillRect(px(-1.0), py(0.33), px(1.3) - px(-1.0), py(0.22) - py(0.33));
+  });
+  T.side.repeat.set(1 / 5.4, 1 / 1.6); T.side.offset.set(2.7 / 5.4, 0);
+  // остекление кабины (боковины): чёрные стойки/рамки + тёмные стёкла; холст x −1,9…1,1, y 0,9…1,5
+  const WX = 1536, WY = 320, wx = x => (x + 1.9) / 3.0 * WX, wy = y => (1 - (y - 0.9) / 0.6) * WY;
+  T.win = s8Tex(WX, WY, g => {
+    g.fillStyle = '#0b0c0e'; g.fillRect(0, 0, WX, WY);
+    const pane = pts => { g.beginPath(); pts.forEach(([x, y], i) => g[i ? 'lineTo' : 'moveTo'](wx(x), wy(y))); g.closePath(); g.fill(); };
+    const gl = g.createLinearGradient(0, wy(1.42), 0, wy(1.03)); gl.addColorStop(0, '#2a3340'); gl.addColorStop(1, '#0e1218'); g.fillStyle = gl;
+    pane([[0.7, 1.03], [-0.22, 1.03], [-0.22, 1.4], [-0.14, 1.4]]);                      // передняя дверь (передняя кромка вдоль стойки A)
+    pane([[-0.3, 1.03], [-1.1, 1.03], [-1.16, 1.3], [-0.3, 1.4]]);                        // задняя дверь (верх по дуге крыши)
+    pane([[-1.22, 1.03], [-1.66, 1.03], [-1.22, 1.26]]);                                   // форточка в стойке C
+    g.strokeStyle = 'rgba(255,255,255,0.08)'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(wx(0.8), wy(1.025)); g.lineTo(wx(-1.7), wy(1.025)); g.stroke();  // нижняя окантовка
+  });
+  T.win.repeat.set(1 / 3.0, 1 / 0.6); T.win.offset.set(1.9 / 3.0, -0.9 / 0.6);
+  // решётка Singleframe: шестиугольник 1,25 × 0,42 м, чёрная рамка, соты, кольца, номер
+  T.grille = s8Tex(1024, 400, g => {
+    const k = 1024 / 1.25, ky = 400 / 0.42, X = z => 512 + z * k, Y = y => 200 - y * ky;
+    const hex = [[-0.5, 0.21], [0.5, 0.21], [0.625, 0.07], [0.58, -0.21], [-0.58, -0.21], [-0.625, 0.07]];
+    g.save(); g.beginPath(); hex.forEach(([z, y], i) => g[i ? 'lineTo' : 'moveTo'](X(z), Y(y))); g.closePath(); g.clip();
+    s8Honey(g, 0, 0, 1024, 400, 30, '#202124', '#030304');
+    g.lineWidth = 2; g.strokeStyle = '#2a2b2e';                                            // горизонтальные ламели поверх сот
+    for (let y = -0.19; y < 0.21; y += 0.05) { g.beginPath(); g.moveTo(0, Y(y)); g.lineTo(1024, Y(y)); g.stroke(); }
+    g.restore();
+    g.beginPath(); hex.forEach(([z, y], i) => g[i ? 'lineTo' : 'moveTo'](X(z), Y(y))); g.closePath();
+    g.lineWidth = 22; g.strokeStyle = '#0a0a0b'; g.stroke(); g.lineWidth = 4; g.strokeStyle = '#2d2e31'; g.stroke();
+    s8Rings(g, 512, Y(0.105), 0.05 * k, 7, '#3b3d41');
+    g.fillStyle = '#f2f2f0'; g.fillRect(X(-0.26), Y(-0.06), 0.52 * k, 0.11 * ky); g.fillStyle = '#1636a8'; g.fillRect(X(-0.26), Y(-0.06), 0.045 * k, 0.11 * ky);
+    g.fillStyle = '#111'; g.font = `bold ${0.075 * ky}px Arial`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('S8  D5', X(0.02), Y(-0.115));
+  });
+  T.mesh = s8Tex(256, 128, g => { s8Honey(g, 0, 0, 256, 128, 22, '#1c1d20', '#050506'); g.lineWidth = 14; g.strokeStyle = '#0a0a0b'; g.strokeRect(0, 0, 256, 128); });
+  // фара Matrix LED: чёрный корпус, белая полоса ДХО с «зубцами», три линзы; s = 1 правая, −1 левая (зеркально)
+  const head = s => s8Tex(512, 128, g => {
+    g.fillStyle = '#07080a'; g.fillRect(0, 0, 512, 128);
+    if (s < 0) { g.translate(512, 0); g.scale(-1, 1); }
+    g.fillStyle = '#15171b'; g.fillRect(14, 40, 484, 76);
+    for (const x of [60, 160, 260]) { g.fillStyle = '#23262c'; g.fillRect(x, 50, 70, 58); g.fillStyle = '#3a3e46'; g.beginPath(); g.arc(x + 35, 79, 20, 0, 7); g.fill();
+      g.fillStyle = '#8d939e'; g.beginPath(); g.arc(x + 29, 73, 6, 0, 7); g.fill(); }
+    g.fillStyle = '#ffffff'; g.beginPath(); g.moveTo(10, 14); g.lineTo(500, 14); g.lineTo(500, 30); g.lineTo(380, 30); g.lineTo(380, 24);
+    g.lineTo(10, 24); g.closePath(); g.fill();                                                 // ДХО
+    for (const x of [360, 400, 440]) g.fillRect(x, 34, 14, 10);                                // зубцы ДХО
+    g.fillRect(470, 40, 30, 72);                                                               // вертикальный штрих у края
+  });
+  T.headR = head(1); T.headL = head(-1);
+  // задний фонарь: сплошная красная полоса во всю ширину, OLED-сегменты, кольца посередине (ширина 1,86 × 0,08 м)
+  T.tail = s8Tex(2048, 96, g => {
+    g.fillStyle = '#0a0607'; g.fillRect(0, 0, 2048, 96);
+    const gr = g.createLinearGradient(0, 14, 0, 70); gr.addColorStop(0, '#ff2a2a'); gr.addColorStop(1, '#c80d16');
+    g.fillStyle = gr; g.fillRect(16, 14, 2016, 56);
+    g.fillStyle = '#5a0a0f'; for (let x = 100; x < 1948; x += 40) if (Math.abs(x - 1024) > 160) g.fillRect(x, 20, 3, 44);  // OLED-сегменты
+    g.fillStyle = '#7f1217'; g.fillRect(16, 40, 2016, 3);
+    s8Rings(g, 1024, 42, 15, 4, '#0b0b0c');
+    g.fillStyle = '#ffffff'; g.fillRect(360, 60, 60, 7); g.fillRect(1628, 60, 60, 7);        // фонари заднего хода
+  });
+  T.plate = s8Tex(512, 112, g => { g.fillStyle = '#f2f2f0'; g.fillRect(0, 0, 512, 112); g.fillStyle = '#1636a8'; g.fillRect(0, 0, 44, 112);
+    g.fillStyle = '#111'; g.font = 'bold 70px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('S8  D5', 280, 58); });
+  // колпачок ступицы с кольцами
+  T.hub = s8Tex(128, 128, g => { g.fillStyle = '#0c0d0f'; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill(); s8Rings(g, 64, 64, 15, 4, '#8a8d93'); });
+  // шина: u — по окружности (повтор 64 раза), v — по профилю токарной детали (10 точек: протектор — участок 4/9…5/9)
+  T.tire = s8Tex(128, 512, g => {
+    g.fillStyle = '#161616'; g.fillRect(0, 0, 128, 512);
+    const v0 = (1 - 5 / 9) * 512, v1 = (1 - 4 / 9) * 512;                                  // полоса протектора
+    g.fillStyle = '#242424'; g.fillRect(0, v0, 128, v1 - v0);
+    g.fillStyle = '#0a0a0a'; for (const f of [0.22, 0.5, 0.78]) g.fillRect(0, v0 + (v1 - v0) * f - 3, 128, 6);   // продольные канавки
+    g.fillRect(30, v0, 7, (v1 - v0) * 0.5); g.fillRect(94, v0 + (v1 - v0) * 0.5, 7, (v1 - v0) * 0.5);           // поперечные ламели
+    g.fillStyle = '#1f1f1f'; g.fillRect(0, v0 - 10, 128, 10); g.fillRect(0, v1, 128, 10);
+    g.fillStyle = '#2a2a2a'; g.fillRect(0, (1 - 7.5 / 9) * 512 - 2, 128, 4); g.fillRect(0, (1 - 1.5 / 9) * 512 - 2, 128, 4);   // надписи на боковине
+  });
+  T.tire.wrapS = THREE.RepeatWrapping; T.tire.repeat.set(64, 1);
+  Object.assign(MAT, {
+    s8Side: s8Mat(T.side, { roughness: 0.6 }), s8Win: s8Mat(T.win, { roughness: 0.1, metalness: 0.5 }),
+    s8Grille: s8Mat(T.grille, { roughness: 0.4, metalness: 0.3, transparent: true, alphaTest: 0.5 }),
+    s8Mesh: s8Mat(T.mesh, { roughness: 0.5 }),
+    s8HeadR: s8Mat(T.headR, { roughness: 0.15, metalness: 0.3 }, 0.9), s8HeadL: s8Mat(T.headL, { roughness: 0.15, metalness: 0.3 }, 0.9),
+    s8Tail: s8Mat(T.tail, { roughness: 0.2, metalness: 0.2 }, 0.9), s8Plate: s8Mat(T.plate, { roughness: 0.4 }),
+    s8Hub: s8Mat(T.hub, { roughness: 0.4, metalness: 0.5, transparent: true, alphaTest: 0.5 }), s8Tire: s8Mat(T.tire, { roughness: 0.92 }),
+  });
+  return T;
+}
+// сгладить нормали неиндексированной геометрии: усреднять только грани с углом < ~26° (шаг скругления), острые рёбра и плоские крышки не трогаются
+function s8Smooth(g, lim = 0.9) {
+  const p = g.attributes.position, n = g.attributes.normal, m = new Map(), key = i => `${p.getX(i).toFixed(4)}|${p.getY(i).toFixed(4)}|${p.getZ(i).toFixed(4)}`;
+  for (let i = 0; i < p.count; i += 3) { const nx = n.getX(i), ny = n.getY(i), nz = n.getZ(i); for (let k = 0; k < 3; k++) (m.get(key(i + k)) ?? m.set(key(i + k), []).get(key(i + k))).push([nx, ny, nz]); }
+  for (let i = 0; i < p.count; i++) {
+    const nx = n.getX(i), ny = n.getY(i), nz = n.getZ(i); let ax = 0, ay = 0, az = 0;
+    for (const [x, y, z] of m.get(key(i))) if (x * nx + y * ny + z * nz > lim) { ax += x; ay += y; az += z; }
+    const l = Math.hypot(ax, ay, az) || 1; n.setXYZ(i, ax / l, ay / l, az / l);
+  }
+}
+// разложить треугольники по материалам (pick(nx, ny, nz) → имя материала или null — выбросить); uv сохраняются
+function s8Split(g, pick) {
+  const p = g.attributes.position, n = g.attributes.normal, uv = g.attributes.uv, out = {};
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let i = 0; i < p.count; i += 3) {
+    a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2);
+    const fn = b.sub(a).cross(c.sub(a)).normalize(), key = pick(fn.x, fn.y, fn.z); if (!key) continue;
+    const o = out[key] ??= { p: [], n: [], uv: [] };
+    for (let k = i; k < i + 3; k++) { o.p.push(p.getX(k), p.getY(k), p.getZ(k)); o.n.push(n.getX(k), n.getY(k), n.getZ(k)); o.uv.push(uv.getX(k), uv.getY(k)); }
+  }
+  return Object.entries(out).map(([key, o]) => { const q = new THREE.BufferGeometry();
+    q.setAttribute('position', new THREE.Float32BufferAttribute(o.p, 3)); q.setAttribute('normal', new THREE.Float32BufferAttribute(o.n, 3));
+    q.setAttribute('uv', new THREE.Float32BufferAttribute(o.uv, 2)); q.userData.ownUV = true; return [q, key]; });
+}
+// дробить рёбра длиннее maxLen у неиндексированной геометрии; общее ребро делится у обоих треугольников одинаково (без щелей).
+// Нужно перед изгибом плоских крышек вытяжки — иначе на огромных треугольниках крышки видны грани после изгиба
+function s8Refine(g, maxLen) {
+  let P = Array.from(g.attributes.position.array), U = Array.from(g.attributes.uv.array);
+  for (let it = 0; it < 8; it++) {
+    const n = P.length / 3, long = new Set(), key = a => `${P[a * 3].toFixed(5)}|${P[a * 3 + 1].toFixed(5)}|${P[a * 3 + 2].toFixed(5)}`;
+    const ek = (a, b) => { const ka = key(a), kb = key(b); return ka < kb ? ka + '#' + kb : kb + '#' + ka; };
+    let any = false;
+    for (let i = 0; i < n; i += 3) for (let e = 0; e < 3; e++) { const a = i + e, b = i + (e + 1) % 3;
+      if (Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]) > maxLen) { long.add(ek(a, b)); any = true; } }
+    if (!any) break;
+    const NP = [], NU = [], V = a => ({ p: [P[a * 3], P[a * 3 + 1], P[a * 3 + 2]], uv: [U[a * 2], U[a * 2 + 1]] });
+    const mid = (a, b) => ({ p: a.p.map((v, j) => (v + b.p[j]) / 2), uv: a.uv.map((v, j) => (v + b.uv[j]) / 2) });
+    const tri = (...vs) => { for (const v of vs) { NP.push(...v.p); NU.push(...v.uv); } };
+    for (let i = 0; i < n; i += 3) {
+      let v = [V(i), V(i + 1), V(i + 2)], f = [long.has(ek(i, i + 1)), long.has(ek(i + 1, i + 2)), long.has(ek(i + 2, i))];
+      const cnt = f.filter(Boolean).length;
+      if (!cnt) { tri(...v); continue; }
+      while (cnt === 1 ? !f[0] : cnt === 2 ? f[2] : false) { v = [v[1], v[2], v[0]]; f = [f[1], f[2], f[0]]; }   // длинное — ab (или ab и bc)
+      const [a, b, c] = v, mab = mid(a, b), mbc = mid(b, c), mca = mid(c, a);
+      if (cnt === 3) tri(a, mab, mca, mab, b, mbc, mca, mbc, c, mab, mbc, mca);
+      else if (cnt === 1) tri(a, mab, c, mab, b, c);
+      else tri(a, mab, mbc, mab, b, mbc, a, mbc, c);
+    }
+    P = NP; U = NU;
+  }
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); g.deleteAttribute('normal');
+}
+// вытяжка профиля на ширину width со скруглением рёбер bevel; warp(x, y, z) → новый z (сужение к концам, завал стёкол); refine — дробить рёбра до этой длины
+const s8Extrude = (shape, width, bevel, seg = 5, warp = null, refine = 0) => {
+  const g = new THREE.ExtrudeGeometry(shape, { depth: width - 2 * bevel, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelOffset: -bevel, bevelSegments: seg, curveSegments: 16 });
+  g.translate(0, 0, -(width - 2 * bevel) / 2);
+  if (refine) s8Refine(g, refine);
+  if (warp) { const p = g.attributes.position; for (let i = 0; i < p.count; i++) p.setZ(i, warp(p.getX(i), p.getY(i), p.getZ(i))); }
+  g.computeVertexNormals(); s8Smooth(g); return g;
+};
+BUILD.audiS8 = o => {
+  const T = S8.tex ??= s8Textures(), r = [], y0 = o.ground ?? TERR;   // машина на участке стоит на земле (TERR), в доме — ground: 0
+  const own = g => { g.userData.ownUV = true; return g; };
+  const AXF = 1.65, AXR = -1.35, RW = 0.36, ARCH = 0.36, HALF = 0.975, BEV = 0.06;   // оси колёс, радиус колеса, радиус арки (у борта + BEV → зазор до шины 6 см), полуширина
+  // ---- нижний кузов: профиль борта с арками, вытяжка на 1,95 со скруглением 6 см; пояс 1,0, капот с наклоном 0,96 → 0,83 ----
+  const s = new THREE.Shape();
+  s.moveTo(-2.42, 0.27); s.quadraticCurveTo(-2.58, 0.28, -2.6, 0.42); s.lineTo(-2.605, 0.86);         // задний бампер
+  s.quadraticCurveTo(-2.605, 1.0, -2.47, 1.02); s.lineTo(-2.1, 1.025); s.lineTo(-1.85, 1.01);        // короткая высокая крышка багажника с кромкой
+  s.lineTo(0.85, 1.0); s.quadraticCurveTo(1.1, 0.995, 1.35, 0.96); s.lineTo(2.3, 0.83);              // капот с наклоном вперёд (0,96 → 0,83)
+  s.quadraticCurveTo(2.6, 0.8, 2.61, 0.64); s.lineTo(2.61, 0.38); s.quadraticCurveTo(2.605, 0.26, 2.45, 0.26);   // нос, передний бампер
+  // арки: дуга r 0,41 вокруг оси, у стыка с низом — плавный переход (острые углы при скруглении рёбер дают вывернутые треугольники)
+  const dx = Math.sqrt(ARCH * ARCH - 0.1 * 0.1), a0 = Math.atan2(-0.1, dx), da = 0.42, F = 0.15;
+  const arch = ax => { const p = t => [ax + ARCH * Math.cos(t), RW + ARCH * Math.sin(t)];
+    s.lineTo(ax + dx + F, 0.26); s.quadraticCurveTo(ax + dx, 0.26, ...p(a0 + da)); s.absarc(ax, RW, ARCH, a0 + da, Math.PI - a0 - da, false);
+    s.quadraticCurveTo(ax - dx, 0.26, ax - dx - F, 0.26); };
+  arch(AXF); arch(AXR);                                                                            // передняя и задняя арки
+  s.lineTo(-2.42, 0.27);
+  const cl = (v, a, b) => Math.min(1, Math.max(0, (v - a) / b));
+  // в плане кузов сужается к бамперам (−11 % ширины) и скругляется у самых углов (ещё −8 % на последних 30 см, r ≈ 0,25)
+  const planW = x => (1 - 0.11 * cl(Math.abs(x), 0.9, 1.7) ** 2) * (1 - 0.08 * cl(Math.abs(x), 2.3, 0.3) ** 2);
+  const body = s8Extrude(s, 2 * HALF, BEV, 5, (x, y, z) => z * planW(x), 0.2);
+  r.push(...s8Split(body, (nx, ny, nz) => Math.abs(nz) > 0.9 ? 's8Side' : ny < -0.8 ? 's8Trim' : 's8Body'));
+  // плечевая линия — объёмная грань: полоса 3,5 см высотой, выступает на 1,2 см, отрезками по 10 см вдоль сужающегося борта
+  // на крыле грань спускается вместе с капотом (на 7 см ниже его кромки) и уходит к фаре
+  const shY = x => Math.min(0.9175, 0.93 - (x - 0.85) * 0.13);
+  for (const sgn of [-1, 1]) for (let x = -2.35; x < 2.2; x += 0.1) {
+    const z0 = HALF * planW(x), z1 = HALF * planW(x + 0.1), a = Math.atan2(z1 - z0, 0.1) * sgn, ya = shY(x), yb = shY(x + 0.1);
+    r.push([new THREE.BoxGeometry(0.104, 0.035, 0.03).rotateZ(Math.atan2(yb - ya, 0.1)).rotateY(-a).translate(x + 0.05, (ya + yb) / 2, sgn * ((z0 + z1) / 2 - 0.003)), 's8Body']);
+  }
+  // ---- кабина: лобовое — крыша — заднее; вытяжка 1,80 со скруглением 6 см, потом сужение к крыше (завал стёкол) ----
+  // купе-силуэт: лобовое ~27°, крыша — одна дуга с верхом 1,47 у x −0,5, заднее ~25° до линии багажника
+  const c = new THREE.Shape();
+  c.moveTo(0.95, 0.95); c.lineTo(0.95, 0.98); c.quadraticCurveTo(0.45, 1.25, 0.0, 1.43);                       // лобовое
+  c.quadraticCurveTo(-0.5, 1.51, -1.0, 1.42); c.quadraticCurveTo(-1.45, 1.21, -1.85, 1.01);                     // крыша, заднее
+  c.lineTo(-1.85, 0.95); c.lineTo(0.95, 0.95);
+  const cab = s8Extrude(c, 1.8, 0.06, 4, (x, y, z) => z * (1 - 0.47 * Math.max(0, y - 1.0)));   // к крыше уже: 1,80 → 1,40
+  // боковины → стёкла с рамками; скругления по бокам (стойки, кант крыши) → чёрный; верх → краска; наклонные спереди/сзади → стекло
+  r.push(...s8Split(cab, (nx, ny, nz) => ny < -0.8 ? null : Math.abs(nz) > 0.8 ? 's8Win' : Math.abs(nz) > 0.45 ? 's8Black' : ny > 0.945 ? 's8Body'
+    : Math.abs(nx) > 0.3 && ny > 0.25 ? 's8Glass' : 's8Black'));
+  // панорамная крыша: тонкие пластины по дуге крыши (кривая Безье крыши), на 7 мм выше кровли
+  const roofAt = t => [2 * t * (1 - t) * -0.5 + t * t * -1.0, (1 - t) ** 2 * 1.43 + 2 * t * (1 - t) * 1.51 + t * t * 1.42];
+  for (let i = 0; i < 9; i++) {
+    const [xa, ya] = roofAt(0.12 + i * 0.085), [xb, yb] = roofAt(0.12 + (i + 1) * 0.085), ang = Math.atan2(yb - ya, xb - xa);
+    r.push([new THREE.BoxGeometry(Math.hypot(xb - xa, yb - ya) + 0.004, 0.012, 1.1).rotateZ(ang).translate((xa + xb) / 2, (ya + yb) / 2 + 0.007, 0), 's8RoofGlass']);
+  }
+  // ---- салон: силуэты сидений, панель, руль (водитель слева: z < 0) ----
+  r.push([Bx(0.5, 0.2, 1.5, 0.55, 0.9, 0), 's8Seat']);
+  for (const z of [-0.38, 0.38]) r.push([Bx(0.12, 0.42, 0.5, -0.3, 0.93, z), 's8Seat'], [RB(0.11, 0.1, 0.26, 0.03, -0.36, 1.33, z), 's8Seat']);
+  r.push([Bx(0.12, 0.2, 1.3, -1.25, 0.93, 0), 's8Seat']); for (const z of [-0.4, 0, 0.4]) r.push([RB(0.1, 0.1, 0.24, 0.03, -1.27, 1.13, z), 's8Seat']);
+  r.push([new THREE.TorusGeometry(0.18, 0.018, 8, 24).rotateY(Math.PI / 2).rotateZ(-0.4).translate(0.25, 1.12, -0.38), 's8Seat']);
+  // ---- днище, пороги, внутренние арки ----
+  r.push([Bx(4.5, 0.15, 1.36, 0.1, 0.12, 0), 's8Trim']);
+  for (const ax of [AXF, AXR]) r.push([Bx(0.9, 0.62, 1.36, ax, 0.12, 0), 's8Trim']);              // ниши колёс (чёрный фон за колесом)
+  r.push([Bx(2.1, 0.12, 1.88, 0.15, 0.15, 0), 's8Trim']);                                          // пороги
+  r.push([Bx(0.32, 0.1, 1.58, 2.42, 0.17, 0), 's8Trim']);                                          // передний сплиттер
+  r.push([Bx(0.36, 0.17, 1.62, -2.42, 0.17, 0), 's8Trim']);                                        // задний диффузор
+  for (const z of [-0.74, -0.59, 0.59, 0.74]) {                                                    // 4 овальные насадки выхлопа
+    r.push([new THREE.CylinderGeometry(0.048, 0.048, 0.1, 20, 1, true).rotateZ(Math.PI / 2).scale(1, 0.85, 1.35).translate(-2.63, 0.285, z), 's8Exhaust']);
+    r.push([new THREE.CircleGeometry(0.046, 20).rotateY(-Math.PI / 2).scale(1, 0.85, 1.35).translate(-2.665, 0.285, z), 's8Black']);
+  }
+  // ---- передняя оптика и решётка ----
+  const plane = (w, h, mat, x, y, z, ry) => { const g = new THREE.PlaneGeometry(w, h).rotateY(ry).translate(x, y, z); return [own(g), mat]; };
+  r.push(plane(1.25, 0.42, 's8Grille', 2.62, 0.47, 0, Math.PI / 2));                               // Singleframe: низ у сплиттера, верх под фарами
+  for (const sgn of [-1, 1]) {
+    // фара: тонкий широкий корпус на кромке капота, наклонён назад по скату носа (26°) и повёрнут к скруглённому углу (10°)
+    const hl = g => g.rotateZ(0.45).rotateY(-sgn * 0.17).translate(2.555, 0.72, sgn * 0.58);
+    r.push([hl(new THREE.BoxGeometry(0.06, 0.1, 0.46)), 's8Black']);
+    // лицевая плоскость — на передней грани корпуса; у правой фары u растёт к середине машины, поэтому ей зеркальный рисунок
+    r.push([own(hl(new THREE.PlaneGeometry(0.46, 0.09).rotateY(Math.PI / 2).translate(0.032, 0, 0))), sgn > 0 ? 's8HeadL' : 's8HeadR']);
+    r.push(plane(0.16, 0.1, 's8Mesh', 2.618, 0.36, sgn * 0.68, Math.PI / 2));                      // боковые воздухозаборники
+  }
+  // ---- задняя оптика, номер, кромка-спойлер ----
+  r.push(plane(1.5, 0.08, 's8Tail', -2.613, 0.835, 0, -Math.PI / 2));
+  r.push(plane(0.52, 0.11, 's8Plate', -2.613, 0.6, 0, -Math.PI / 2));
+  r.push([new THREE.BoxGeometry(0.1, 0.028, 1.4).rotateZ(-0.12).translate(-2.47, 1.005, 0), 's8Body']);    // спойлер-кромка
+  // ---- зеркала в цвет кузова на чёрных ножках ----
+  for (const sgn of [-1, 1]) {
+    r.push([Bx(0.06, 0.04, 0.1, 0.74, 1.0, sgn * 0.93), 's8Black']);
+    r.push([RB(0.2, 0.1, 0.17, 0.035, 0.7, 1.02, sgn * 1.055), 's8Body']);
+    r.push([Bx(0.01, 0.08, 0.14, 0.598, 1.03, sgn * 1.055), 's8Mirror']);
+  }
+  // ---- колёса: шина (токарная деталь с протектором), чёрный диск 10 спиц (5 сдвоенных), тормозной диск, красный суппорт ----
+  const tirePts = [[0.262, -0.125], [0.31, -0.133], [0.345, -0.125], [0.358, -0.105], [0.36, -0.09], [0.36, 0.09], [0.358, 0.105], [0.345, 0.125], [0.31, 0.133], [0.262, 0.125]]
+    .map(([x, y]) => new THREE.Vector2(x, y));
+  const wheel = (sgn) => {   // колесо для правой стороны (+Z наружу); левое — поворот на 180° вокруг Y
+    const w = [];
+    w.push([own(new THREE.LatheGeometry(tirePts, 56).rotateX(Math.PI / 2)), 's8Tire']);
+    w.push([new THREE.CylinderGeometry(0.262, 0.262, 0.24, 40, 1, true).rotateX(Math.PI / 2), 's8Rim']);              // обод
+    w.push([new THREE.TorusGeometry(0.25, 0.013, 8, 40).translate(0, 0, 0.115), 's8Rim']);                              // наружная закраина
+    w.push([new THREE.CylinderGeometry(0.19, 0.19, 0.032, 40).rotateX(Math.PI / 2).translate(0, 0, -0.03), 's8Disc']);  // тормозной диск
+    w.push([new THREE.CylinderGeometry(0.09, 0.09, 0.05, 24).rotateX(Math.PI / 2).translate(0, 0, -0.02), 's8Trim']);   // ступица/колпак диска
+    w.push([new THREE.CircleGeometry(0.262, 40).translate(0, 0, -0.1), 's8Trim']);                                       // «задник» колеса
+    w.push([new THREE.TorusGeometry(0.155, 0.034, 8, 12, 1.1).rotateZ(sgn > 0 ? 2.1 : -0.05).translate(0, 0, -0.03), 's8Red']);   // суппорт сзади-сверху (с учётом поворота левого колеса)
+    w.push([new THREE.CylinderGeometry(0.065, 0.075, 0.05, 24).rotateX(Math.PI / 2).translate(0, 0, 0.045), 's8Rim']);  // ступица
+    w.push(plane(0.09, 0.09, 's8Hub', 0, 0, 0.0705, 0));
+    for (let i = 0; i < 5; i++) for (const d of [-1, 1]) {                                                               // 10 спиц, вогнутый «тарельчатый» диск
+      const th = i * Math.PI * 2 / 5 + d * 0.1;
+      w.push([new THREE.BoxGeometry(0.2, 0.026, 0.028).rotateY(-0.33).translate(0.158, 0, 0.078).rotateZ(th), 's8Rim']);
+    }
+    return w;
+  };
+  for (const sgn of [-1, 1]) for (const ax of [AXF, AXR])
+    for (const [g, m] of wheel(sgn)) { if (sgn < 0) g.rotateY(Math.PI); r.push([g.translate(ax, RW, sgn * 0.815), m]); }
+  // ---- поворот: +X (нос) → +Z, посадка на землю ----
+  for (const [g] of r) g.rotateY(-Math.PI / 2).translate(0, y0, 0);
+  return mergeByMat(r);
+};
+// === CAR LAB BEGIN audiSQ8 ===
+// ============================ Audi SQ8 (4M, рестайлинг 2024) — процедурная модель ============================
+//  Размеры: длина 5,01 · ширина 2,00 (2,19 с зеркалами) · высота 1,70 · база 3,00 · свесы 0,97/1,04 · клиренс 0,21 ·
+//  шины 285/35 R23 (Ø 0,78, ширина 0,29) · колея 1,68. Цвет Sakhir Gold Metallic, пакет «чёрная оптика».
+//  Строим вдоль X (нос = +X, Y вверх, Z — ширина), в конце поворачиваем: нос → +Z (как у всей мебели движка).
+//  Низ колёс стоит на земле (TERR); o.ground — своя отметка (например 0 для гаража).
+{
+const K = { L: 5.01, W: 2.00, WB: 3.00, OF: 0.97, CL: 0.21, RW: 0.39, TW: 0.29, TRK: 1.68, R: 0.425 };   // R — радиус арки в глубине
+K.XN = K.L / 2; K.XF = K.XN - K.OF; K.XR = K.XF - K.WB; K.XT = -K.L / 2;   // нос, передняя ось, задняя ось, корма
+const PAINT = '#b89a63';
+// ---------- помощники рисования ----------
+const cvTex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
+const polyPath = (g, pts) => { g.beginPath(); pts.forEach(([x, y], i) => g[i ? 'lineTo' : 'moveTo'](x, y)); g.closePath(); };
+const honey = (g, x, y, w, h, s, bar, cell) => {   // соты: фон — перемычки, ячейки — тёмные шестиугольники радиуса s (px)
+  g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); g.fillStyle = bar; g.fillRect(x, y, w, h); g.fillStyle = cell;
+  const dy = s * 0.866; let col = 0;
+  for (let cx = x; cx < x + w + s; cx += s * 1.5, col++) for (let cy = y - (col % 2 ? dy : 0); cy < y + h + s; cy += 2 * dy) {
+    g.beginPath(); for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3; g[k ? 'lineTo' : 'moveTo'](cx + s * 0.8 * Math.cos(a), cy + s * 0.8 * Math.sin(a)); }
+    g.closePath(); g.fill();
+  }
+  g.restore();
+};
+const rings = (g, cx, cy, r, lw, col) => { g.strokeStyle = col; g.lineWidth = lw; for (let i = 0; i < 4; i++) { g.beginPath(); g.arc(cx + (i - 1.5) * r * 1.55, cy, r, 0, Math.PI * 2); g.stroke(); } };
+// ---------- профиль крыши (реальный контур, по центру) ----------
+const roofPts = [[0.14, 1.655], [0.06, 1.685], [-0.05, 1.70], [-0.4, 1.71], [-0.9, 1.69], [-1.4, 1.64], [-1.8, 1.58], [-2.05, 1.53], [-2.12, 1.505]];
+const roofY = x => { for (let i = 1; i < roofPts.length; i++) { const [x0, y0] = roofPts[i - 1], [x1, y1] = roofPts[i]; if (x <= x0 && x >= x1) return y0 + (y1 - y0) * (x - x0) / (x1 - x0); }
+  return x > roofPts[0][0] ? roofPts[0][1] : roofPts[roofPts.length - 1][1]; };
+// ---------- текстуры ----------
+// борт кузова ниже подоконной линии: x −2,6…2,6 → u, y 0…1,9 → v. Плечо, тени над арками, порог, швы дверей, лючок
+const sideTex = cvTex(2048, 768, (g, W, H) => {
+  const X = x => (x + 2.6) / 5.2 * W, Y = y => (1 - y / 1.9) * H, S = W / 5.2;
+  g.fillStyle = PAINT; g.fillRect(0, 0, W, H);
+  let gr = g.createLinearGradient(0, Y(1.12), 0, Y(0.5));
+  gr.addColorStop(0, 'rgba(255,248,230,0.10)'); gr.addColorStop(0.16, 'rgba(255,248,230,0.26)'); gr.addColorStop(0.2, 'rgba(0,0,0,0.16)'); gr.addColorStop(0.45, 'rgba(0,0,0,0.05)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(0, Y(1.12), W, Y(0.5) - Y(1.12));
+  for (const xa of [K.XF, K.XR]) {   // тень над аркой
+    const rg = g.createRadialGradient(X(xa), Y(0.39), 0.52 * S, X(xa), Y(0.39), 0.70 * S);
+    rg.addColorStop(0, 'rgba(0,0,0,0.32)'); rg.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = rg; g.fillRect(X(xa) - 0.75 * S, Y(1.12), 1.5 * S, Y(0.2) - Y(1.12));
+  }
+  g.fillStyle = '#17171a'; g.fillRect(0, Y(0.36), W, H - Y(0.36));                 // чёрный порог
+  g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, Y(0.40), W, Y(0.36) - Y(0.40));  // тень над порогом
+  g.strokeStyle = 'rgba(40,30,15,0.8)'; g.lineWidth = 3; g.lineCap = 'round';
+  const seam = (x, y0, y1) => { g.beginPath(); g.moveTo(X(x), Y(y0)); g.lineTo(X(x), Y(y1)); g.stroke(); };
+  seam(0.86, 0.37, 1.14); seam(-0.34, 0.37, 1.16); seam(-1.42, 0.86, 1.19);   // двери
+  seam(2.06, 0.40, 1.02); seam(-2.08, 0.46, 1.12);                             // крыло/бампер
+  g.beginPath(); g.moveTo(X(0.86), Y(0.37)); g.lineTo(X(-1.42), Y(0.37)); g.stroke();   // низ дверей
+  g.lineWidth = 2.5; g.strokeStyle = 'rgba(40,30,15,0.6)'; g.beginPath(); g.roundRect(X(-2.10), Y(1.02), 0.16 * S, 0.16 * S, 0.02 * S); g.stroke();   // лючок
+});
+// борт кабины: x −2,6…1,1 → u, y 1,05…1,75 → v. Чёрная окантовка, тёмные стёкла, стойки; за задней стойкой — краска
+const cabTex = cvTex(2048, 384, (g, W, H) => {
+  const X = x => (x + 2.6) / 3.7 * W, Y = y => (1 - (y - 1.05) / 0.7) * H;
+  g.fillStyle = PAINT; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#101113'; g.fillRect(X(-2.02), 0, W - X(-2.02), H);
+  const glass = g.createLinearGradient(0, Y(1.66), 0, Y(1.13)); glass.addColorStop(0, '#2b323b'); glass.addColorStop(0.5, '#171c22'); glass.addColorStop(1, '#0c0f12');
+  const win = pts => { polyPath(g, pts.map(([x, y]) => [X(x), Y(y)])); g.fillStyle = glass; g.fill(); };
+  win([[0.80, 1.14], [-0.40, 1.14], [-0.40, 1.625], [0.17, 1.625]]);                                           // переднее
+  win([[-0.27, 1.14], [-1.50, 1.14], [-1.50, roofY(-1.5) - 0.075], [-0.27, roofY(-0.27) - 0.075]]);           // заднее
+  win([[-1.56, 1.14], [-1.98, 1.14], [-1.98, 1.20], [-1.90, roofY(-1.90) - 0.085], [-1.56, roofY(-1.56) - 0.075]]);   // форточка
+  g.fillStyle = '#0b0c0e'; g.fillRect(X(-0.40), Y(1.72), X(-0.27) - X(-0.40), Y(1.10) - Y(1.72));              // стойка B
+});
+// нос: z −0,9…0,9 → u, y 0,44…0,98 → v (прозрачный фон — краска кузова). Решётка Singleframe с сотами и кольцами, воздухозаборники
+const noseTex = cvTex(1024, 320, (g, W, H) => {
+  const X = z => (z + 0.82) / 1.64 * W, Y = y => (1 - (y - 0.44) / 0.54) * H, S = W / 1.64, P = pts => pts.map(([z, y]) => [X(z), Y(y)]);
+  g.clearRect(0, 0, W, H);
+  const oct = (hw, hh, c, cy) => [[-hw + c, cy + hh], [hw - c, cy + hh], [hw, cy + hh - c], [hw, cy - hh + c * 0.5], [hw - c * 0.5, cy - hh], [-hw + c * 0.5, cy - hh], [-hw, cy - hh + c * 0.5], [-hw, cy + hh - c]];
+  polyPath(g, P(oct(0.64, 0.25, 0.14, 0.725))); g.fillStyle = '#0d0e10'; g.fill();
+  g.save(); polyPath(g, P(oct(0.61, 0.22, 0.12, 0.725))); g.clip(); honey(g, X(-0.66), Y(0.98), 1.32 * S, 0.54 * S, 0.03 * S, '#2b2c30', '#090a0c'); g.restore();
+  rings(g, X(0), Y(0.83), 0.06 * S, 0.012 * S, '#3d3e42');
+  for (const s of [-1, 1]) {   // боковые воздухозаборники (уходят на скруглённые углы бампера)
+    const q = [[s * 0.60, 0.46], [s * 0.86, 0.46], [s * 0.86, 0.66], [s * 0.76, 0.76], [s * 0.62, 0.76]];
+    polyPath(g, P(q)); g.fillStyle = '#0d0e10'; g.fill();
+    g.save(); polyPath(g, P(q.map(([z, y]) => [z - s * 0.02 * Math.sign(z - s * 0.73), y + (y > 0.6 ? -0.02 : 0.02)]))); g.clip();
+    honey(g, X(Math.min(s * 0.6, s * 0.86)), Y(0.78), 0.28 * S, 0.34 * S, 0.028 * S, '#2b2c30', '#090a0c'); g.restore();
+  }
+});
+// корма: z −0,9…0,9 → u, y 0,44…0,98 → v. Шов бампера, кольца, надпись
+const tailTex = cvTex(1024, 320, (g, W, H) => {
+  const X = z => (z + 0.82) / 1.64 * W, Y = y => (1 - (y - 0.44) / 0.54) * H, S = W / 1.64;
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = '#1c1c1e'; g.fillRect(0, Y(0.52), W, H - Y(0.52));                 // низ бампера
+  g.strokeStyle = 'rgba(40,30,15,0.8)'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, Y(0.70)); g.lineTo(W, Y(0.70)); g.stroke();
+  rings(g, X(0), Y(0.93), 0.045 * S, 0.009 * S, '#2a2a2d');
+  g.fillStyle = '#2a2a2d'; g.font = `bold ${Math.round(0.055 * S)}px Arial`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('SQ8', X(0.62), Y(0.93));
+});
+// фара: тёмный корпус, две линзы, белая полоса дневного света (цвет + карта свечения)
+const lampDraw = em => (g, W, H) => {
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  if (!em) {
+    const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#171b22'); gr.addColorStop(1, '#05060a'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    for (const u of [0.30, 0.56]) {
+      g.beginPath(); g.arc(W * u, H * 0.6, H * 0.30, 0, 6.3); g.fillStyle = '#20272f'; g.fill();
+      g.beginPath(); g.arc(W * u, H * 0.6, H * 0.21, 0, 6.3); g.fillStyle = '#3b4858'; g.fill();
+      g.beginPath(); g.arc(W * u, H * 0.6, H * 0.11, 0, 6.3); g.fillStyle = '#0a0c12'; g.fill();
+    }
+  }
+  g.fillStyle = em ? '#dfe9ff' : '#f4f7ff';
+  g.fillRect(W * 0.04, H * 0.13, W * 0.92, H * 0.09); g.fillRect(W * 0.90, H * 0.13, W * 0.06, H * 0.6); g.fillRect(W * 0.04, H * 0.13, W * 0.05, H * 0.42);
+};
+const lampTex = cvTex(512, 112, lampDraw(false)), lampEm = cvTex(512, 112, lampDraw(true));
+// фонарь: тёмно-красное стекло с тремя светящимися штрихами (цвет + карта свечения)
+const tlDraw = em => (g, W, H) => {
+  g.fillStyle = em ? '#000' : '#1a0507'; g.fillRect(0, 0, W, H);
+  if (!em) { const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#2a0a0e'); gr.addColorStop(1, '#0d0203'); g.fillStyle = gr; g.fillRect(0, 0, W, H); }
+  g.fillStyle = em ? '#ff3a2a' : '#c81e1e';
+  for (const v of [0.22, 0.62, 0.78]) g.fillRect(W * 0.08, H * v, W * 0.84, H * 0.08);
+};
+const tlTex = cvTex(420, 100, tlDraw(false)), tlEm = cvTex(420, 100, tlDraw(true));
+// номерной знак
+const plateTex = cvTex(520, 110, (g, W, H) => {
+  g.fillStyle = '#f5f5f2'; g.fillRect(0, 0, W, H); g.fillStyle = '#1f3f9c'; g.fillRect(0, 0, 44, H);
+  g.fillStyle = '#111'; g.font = 'bold 70px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('SQ8 · 2024', W / 2 + 22, H / 2 + 4);
+  g.strokeStyle = '#9a9a9a'; g.lineWidth = 4; g.strokeRect(2, 2, W - 4, H - 4);
+});
+// шина: один период протектора по ширине (повтор 40 раз по кругу), v — вдоль профиля (протектор v 0,4–0,6)
+const tireTex = cvTex(128, 512, (g, W, H) => {
+  g.fillStyle = '#1b1b1b'; g.fillRect(0, 0, W, H);
+  const t0 = H * 0.4, t1 = H * 0.6, th = t1 - t0;
+  g.fillStyle = '#242424'; g.fillRect(0, t0, W, th);
+  g.fillStyle = '#0d0d0d'; for (const f of [0.2, 0.5, 0.8]) g.fillRect(0, t0 + th * f - 3, W, 6);   // продольные канавки
+  g.fillRect(W * 0.44, t0, 9, th);                                                                  // поперечная канавка
+  g.beginPath(); g.moveTo(W * 0.1, t0 + th * 0.22); g.lineTo(W * 0.36, t0 + th * 0.48); g.lineTo(W * 0.1, t0 + th * 0.48); g.closePath(); g.fill();   // косые ламели
+  g.beginPath(); g.moveTo(W * 0.62, t0 + th * 0.52); g.lineTo(W * 0.9, t0 + th * 0.78); g.lineTo(W * 0.62, t0 + th * 0.78); g.closePath(); g.fill();
+  g.fillStyle = '#262626'; g.fillRect(0, H * 0.05, W, 3); g.fillRect(0, H * 0.95 - 3, W, 3);                // кольцо у обода
+  g.fillStyle = '#2b2b2b'; g.fillRect(W * 0.15, H * 0.2, W * 0.7, 7); g.fillRect(W * 0.15, H * 0.8 - 7, W * 0.7, 7);   // «надпись» на боковине
+});
+tireTex.wrapS = THREE.RepeatWrapping; tireTex.repeat.set(40, 1);
+// ---------- материалы ----------
+Object.assign(MAT, {
+  sq8Paint: std({ color: 0xb89a63, roughness: 0.3, metalness: 0.35 }),          // краска Sakhir Gold
+  sq8Side: std({ map: sideTex, roughness: 0.3, metalness: 0.35 }),              // борт с швами дверей
+  sq8Cab: std({ map: cabTex, roughness: 0.2, metalness: 0.45 }),                // борт кабины (стёкла + стойки)
+  sq8Glass: std({ color: 0x0e1317, roughness: 0.05, metalness: 0.75 }),         // лобовое и заднее стекло
+  sq8Roof: std({ color: 0x08090b, roughness: 0.06, metalness: 0.6 }),           // панорамная крыша
+  sq8Black: std({ color: 0x15161a, roughness: 0.35, metalness: 0.4 }),          // чёрный глянец (окантовка, рейлинги, корпуса фар)
+  sq8Matt: std({ color: 0x1d1e21, roughness: 0.8, metalness: 0.1 }),            // чёрный мат (низ бамперов, диффузор)
+  sq8Under: std({ color: 0x13141a, roughness: 0.95, side: THREE.DoubleSide }),  // днище и ниши колёс
+  sq8Nose: std({ map: noseTex, transparent: true, roughness: 0.55, metalness: 0.2 }),
+  sq8Tail: std({ map: tailTex, transparent: true, roughness: 0.55, metalness: 0.2 }),
+  sq8Lamp: std({ map: lampTex, emissiveMap: lampEm, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.12, metalness: 0.5 }),
+  sq8TailLamp: std({ map: tlTex, emissiveMap: tlEm, emissive: 0xff2a1a, emissiveIntensity: 0.8, roughness: 0.12, metalness: 0.4 }),
+  sq8Red: std({ color: 0x5a0a0c, emissive: 0xff2016, emissiveIntensity: 1.6, roughness: 0.3 }),   // световая полоса кормы
+  sq8Caliper: std({ color: 0xc41e1a, roughness: 0.45 }),
+  sq8Tire: std({ map: tireTex, roughness: 0.92 }),
+  sq8Rim: std({ color: 0x161618, roughness: 0.28, metalness: 0.6 }),
+  sq8RimIn: std({ color: 0x0b0b0d, roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide }),
+  sq8Disc: std({ color: 0x8c8f93, roughness: 0.35, metalness: 0.85 }),
+  sq8Exh: std({ color: 0x3b3d42, roughness: 0.3, metalness: 0.9 }),
+  sq8Mirror: std({ color: 0xaebdc8, roughness: 0.03, metalness: 1 }),
+  sq8Plate: std({ map: plateTex, roughness: 0.4 }), sq8PlateBody: std({ color: 0xf0f0ee, roughness: 0.4 }),
+});
+// ---------- геометрические помощники ----------
+const V2 = pts => pts.map(([x, y]) => new THREE.Vector2(x, y));
+const arc = (cx, cy, r, a0, a1, n) => { const p = []; for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; p.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); } return p; };
+const inset = (pts, d) => {   // сдвиг контура (обход против часовой) внутрь на d: бевел ExtrudeGeometry раздувает контур на bevelSize
+  const n = pts.length, out = [];
+  for (let i = 0; i < n; i++) {
+    const [px, py] = pts[(i + n - 1) % n], [cx, cy] = pts[i], [nx, ny] = pts[(i + 1) % n];
+    const l1 = Math.hypot(cx - px, cy - py) || 1, l2 = Math.hypot(nx - cx, ny - cy) || 1;
+    const n1x = (cy - py) / l1, n1y = -(cx - px) / l1, n2x = (ny - cy) / l2, n2y = -(nx - cx) / l2;   // внешние нормали соседних рёбер
+    const k = d / Math.max(0.35, 1 + n1x * n2x + n1y * n2y);
+    out.push([cx - (n1x + n2x) * k, cy - (n1y + n2y) * k]);
+  }
+  return out;
+};
+const extrude = (pts, bs, bt, width) => {   // вытянуть профиль (XY) на ширину по Z со скруглёнными рёбрами, центр по Z
+  const d = width - 2 * bt;
+  return new THREE.ExtrudeGeometry(new THREE.Shape(V2(inset(pts, bs))), { depth: d, bevelEnabled: true, bevelThickness: bt, bevelSize: bs, bevelOffset: 0, bevelSegments: 6, curveSegments: 1 }).translate(0, 0, -d / 2);
+};
+const smooth = pos => {   // сварить совпадающие вершины → гладкие нормали (бевел без «граней»)
+  const map = new Map(), idx = [], vp = [];
+  for (let i = 0; i < pos.length; i += 3) {
+    const key = `${Math.round(pos[i] * 1e4)},${Math.round(pos[i + 1] * 1e4)},${Math.round(pos[i + 2] * 1e4)}`;
+    let j = map.get(key); if (j === undefined) { j = vp.length / 3; map.set(key, j); vp.push(pos[i], pos[i + 1], pos[i + 2]); } idx.push(j);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(vp, 3)); g.setIndex(idx); g.computeVertexNormals();
+  return g.toNonIndexed();
+};
+const split = (geo, classify) => {   // разложить треугольники по корзинам: classify(нормаль грани, центр x, центр y) → имя
+  const p = geo.attributes.position, b = {}, A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(), N = new THREE.Vector3(), T = new THREE.Vector3();
+  for (let i = 0; i < p.count; i += 3) {
+    A.fromBufferAttribute(p, i); B.fromBufferAttribute(p, i + 1); C.fromBufferAttribute(p, i + 2);
+    N.copy(C).sub(B); T.copy(A).sub(B); N.cross(T).normalize();
+    (b[classify(N, (A.x + B.x + C.x) / 3, (A.y + B.y + C.y) / 3)] ??= []).push(A.x, A.y, A.z, B.x, B.y, B.z, C.x, C.y, C.z);
+  }
+  const out = {}; for (const k in b) out[k] = smooth(b[k]); return out;
+};
+const uvXY = (g, x0, lx, y0, ly) => {   // UV из координат профиля: u = (x−x0)/lx, v = (y−y0)/ly
+  if (!g) return g;
+  const p = g.attributes.position, uv = new Float32Array(p.count * 2);
+  for (let i = 0; i < p.count; i++) { uv[2 * i] = (p.getX(i) - x0) / lx; uv[2 * i + 1] = (p.getY(i) - y0) / ly; }
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.userData.ownUV = true; return g;
+};
+const flipU = g => { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i)); return g; };
+const own = g => { g.userData.ownUV = true; return g; };
+const subdiv = (g, thr) => {   // дробит крупные треугольники по длинным рёбрам (> thr), иначе сужение в плане даёт «складки» на бортах
+  const p = g.attributes.position, stack = [], out = [], t2 = thr * thr;
+  for (let i = 0; i < p.count; i += 3) stack.push([[p.getX(i), p.getY(i), p.getZ(i)], [p.getX(i + 1), p.getY(i + 1), p.getZ(i + 1)], [p.getX(i + 2), p.getY(i + 2), p.getZ(i + 2)]]);
+  const d2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2, mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+  while (stack.length) {
+    const [a, b, c] = stack.pop(), lab = d2(a, b) > t2, lbc = d2(b, c) > t2, lca = d2(c, a) > t2, n = lab + lbc + lca;
+    if (!n) { out.push(...a, ...b, ...c); continue; }
+    if (n === 3) { const p = mid(a, b), q = mid(b, c), r = mid(c, a); stack.push([a, p, r], [p, b, q], [r, q, c], [p, q, r]); continue; }
+    if (n === 1) { if (lab) stack.push([a, mid(a, b), c], [mid(a, b), b, c]); else if (lbc) stack.push([a, b, mid(b, c)], [a, mid(b, c), c]); else stack.push([a, b, mid(c, a)], [mid(c, a), b, c]); continue; }
+    // два длинных ребра: отрезаем угол между ними, оставшийся четырёхугольник — по диагонали
+    if (!lca) { const p = mid(a, b), q = mid(b, c); stack.push([p, b, q], [a, p, q], [a, q, c]); }
+    else if (!lab) { const q = mid(b, c), r = mid(c, a); stack.push([r, q, c], [a, b, q], [a, q, r]); }
+    else { const p = mid(a, b), r = mid(c, a); stack.push([a, p, r], [p, b, c], [p, c, r]); }
+  }
+  const o = new THREE.BufferGeometry(); o.setAttribute('position', new THREE.Float32BufferAttribute(out, 3)); return o;
+};
+const taper = x => {   // скругление в плане: к носу и корме кузов сужается по четверти эллипса (нос −14 %, корма −10 %)
+  const e = x > 2.0 ? (x - 2.0) / 0.505 : x < -2.0 ? (-2.0 - x) / 0.505 : 0;
+  return 1 - (x > 0 ? 0.14 : 0.10) * (1 - Math.sqrt(Math.max(0, 1 - e * e)));
+};
+const shapeZ = g => {   // сужение в плане (борта остаются плоскими: любая волнистость узких треугольников даёт пунктир самозатенения)
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) p.setZ(i, p.getZ(i) * taper(p.getX(i)));
+  return g;
+};
+const wrapDecal = (mesh, dir, y0, y1, z0, z1, nz, ny, off = 0.005) => {   // «наклейка» по поверхности кузова: сетка точек, найденных лучами вдоль ±X
+  const rc = new THREE.Raycaster(), pos = [], uv = [], idx = [], o = new THREE.Vector3(), d = new THREE.Vector3(-dir, 0, 0);
+  for (let j = 0; j <= ny; j++) for (let i = 0; i <= nz; i++) {
+    const y = y0 + (y1 - y0) * j / ny, z = z0 + (z1 - z0) * i / nz;
+    o.set(dir * 4, y, z); rc.set(o, d); const h = rc.intersectObject(mesh, false)[0];
+    if (h) pos.push(h.point.x + h.face.normal.x * off, h.point.y + h.face.normal.y * off, h.point.z + h.face.normal.z * off); else pos.push(dir * 2.2, y, z);
+    uv.push(i / nz, j / ny);
+  }
+  const same = Math.sign(z1 - z0) === dir;
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nz; i++) { const a = j * (nz + 1) + i, b = a + 1, c = a + nz + 1, e = c + 1; if (same) idx.push(a, c, b, b, c, e); else idx.push(a, b, c, b, e, c); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals(); g.userData.ownUV = true; return g;
+};
+// ---------- сборка ----------
+BUILD.audiSQ8 = o => {
+  const G = o.ground ?? TERR, r = [], { XN, XF, XR, XT, R, CL } = K, add = (g, m) => { if (g) r.push([g, m]); };
+  // --- кузов ниже подоконной линии: профиль сбоку (против часовой, от кормы по низу), арки — дуги ---
+  const dxA = Math.sqrt(R * R - (0.39 - CL) ** 2), aA = Math.atan2(CL - 0.39, -dxA), aB = Math.atan2(CL - 0.39, dxA) - 2 * Math.PI;
+  const body = [[XT + 0.06, CL], ...arc(XR, 0.39, R, aA, aB, 26), ...arc(XF, 0.39, R, aA, aB, 26),
+    [2.28, CL], [2.42, 0.26], [2.49, 0.36], [XN, 0.50], [XN - 0.015, 0.64], [XN - 0.04, 0.84], [XN - 0.03, 0.96], [XN - 0.01, 1.0],   // подбородок, бампер, решётка, губа капота
+    [XN - 0.03, 1.04], [XN - 0.08, 1.065], [XN - 0.16, 1.078],
+    [1.9, 1.09], [1.3, 1.115], [0.95, 1.13], [0.4, 1.14], [-0.4, 1.155], [-1.2, 1.175], [-1.7, 1.20], [-2.1, 1.225], [-2.36, 1.23],   // капот → плечи (растут к корме)
+    [-2.44, 1.21], [-2.49, 1.16], [XT, 1.08], [XT, 0.62], [XT + 0.015, 0.45], [XT + 0.045, 0.30]];                                      // крышка багажника, бампер
+  const bodyG = shapeZ(subdiv(extrude(body, 0.08, 0.12, K.W), 0.3));
+  const bodyMesh = new THREE.Mesh(bodyG);   // для проецирования «наклеек» лучами
+  const bp = split(bodyG, (n, cx, cy) => {
+    if (Math.abs(n.z) > 0.85) return 'side';
+    for (const xa of [XF, XR]) { const dx = cx - xa, dy = cy - 0.39, d = Math.hypot(dx, dy); if (d < 0.62 && cy > 0.2 && -(dx * n.x + dy * n.y) > 0.3 * d) return 'under'; }   // внутренность арки
+    if (n.y < -0.8) return 'under';
+    return cy < 0.46 ? 'matt' : 'paint';
+  });
+  add(uvXY(bp.side, -2.6, 5.2, 0, 1.9), 'sq8Side'); add(bp.paint, 'sq8Paint'); add(bp.under, 'sq8Under'); add(bp.matt, 'sq8Matt');
+  // --- кабина: лобовое — крыша — заднее стекло; сужается кверху (наклон стоек) ---
+  const cab = [[1.00, 1.06], [0.98, 1.12], ...roofPts, [-2.40, 1.27], [-2.44, 1.21], [-2.44, 1.06]];
+  const cabG = subdiv(extrude(cab, 0.06, 0.08, 1.92), 0.3);
+  { const p = cabG.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setZ(i, p.getZ(i) * (1 - 0.22 * Math.min(1, Math.max(0, (y - 1.12) / 0.56)))); } }
+  shapeZ(cabG);
+  const cp = split(cabG, (n, cx, cy) => Math.abs(n.z) > 0.85 ? 'side' : n.y > 0.93 ? 'roof' : Math.abs(n.z) > 0.3 ? (cx < -2.02 ? 'paint' : 'black') : cy < 1.13 ? 'black' : 'glass');
+  add(uvXY(cp.side, -2.6, 3.7, 1.05, 0.7), 'sq8Cab'); add(cp.roof, 'sq8Roof'); add(cp.black, 'sq8Black'); add(cp.paint, 'sq8Paint'); add(cp.glass, 'sq8Glass');
+  // --- ниши колёс (полуцилиндр + внутренняя стенка), днище, балки подвески ---
+  for (const xa of [XF, XR]) {
+    add(new THREE.CylinderGeometry(0.465, 0.465, 1.94, 32, 1, true, Math.PI / 2, Math.PI).rotateX(Math.PI / 2).translate(xa, 0.39, 0), 'sq8Under');
+    for (const s of [-1, 1]) add(Bx(1.0, 0.45, 0.03, xa, CL, s * 0.62), 'sq8Under');
+    add(Bx(0.16, 0.10, 1.30, xa, CL + 0.04, 0), 'sq8Under');
+  }
+  // --- колёса: шина (lathe с протектором), чёрный диск — 5 пар тонких спиц, тормозной диск, красный суппорт ---
+  const wheel = (xa, s) => {
+    const W = [], prof = [[0.285, -0.145], [0.33, -0.145], [0.365, -0.135], [0.383, -0.12], [0.39, -0.105], [0.392, 0], [0.39, 0.105], [0.383, 0.12], [0.365, 0.135], [0.33, 0.145], [0.285, 0.145]];
+    W.push([own(new THREE.LatheGeometry(V2(prof), 48)), 'sq8Tire']);
+    W.push([new THREE.CylinderGeometry(0.285, 0.285, 0.25, 40, 1, true), 'sq8RimIn']);                               // бочка обода
+    W.push([new THREE.TorusGeometry(0.274, 0.014, 8, 48).rotateX(Math.PI / 2).translate(0, 0.122, 0), 'sq8Rim']);      // закраина
+    for (let k = 0; k < 5; k++) for (const t of [-1, 1])                                                              // спицы парами, чуть «тарелкой»
+      W.push([new THREE.BoxGeometry(0.22, 0.028, 0.028).rotateZ(0.14).translate(0.17, 0.082, t * 0.03).rotateY(k * Math.PI * 2 / 5), 'sq8Rim']);
+    W.push([new THREE.CylinderGeometry(0.085, 0.085, 0.045, 24).translate(0, 0.07, 0), 'sq8Rim']);                      // ступица
+    W.push([new THREE.CylinderGeometry(0.036, 0.036, 0.012, 20).translate(0, 0.095, 0), 'sq8Black']);                  // колпачок
+    W.push([new THREE.TorusGeometry(0.028, 0.004, 6, 24).rotateX(Math.PI / 2).translate(0, 0.101, 0), 'chrome']);
+    for (let k = 0; k < 5; k++) W.push([new THREE.CylinderGeometry(0.008, 0.008, 0.01, 8).translate(0.06, 0.095, 0).rotateY(k * Math.PI * 2 / 5 + 0.63), 'steel']);   // болты
+    W.push([new THREE.CylinderGeometry(0.19, 0.19, 0.028, 40).translate(0, 0, 0), 'sq8Disc']);                         // тормозной диск
+    W.push([new THREE.CylinderGeometry(0.09, 0.09, 0.05, 20).translate(0, 0.01, 0), 'sq8Matt']);
+    W.push([new THREE.BoxGeometry(0.085, 0.06, 0.17).translate(0.165, 0, 0).rotateY(0.5), 'sq8Caliper']);              // суппорт
+    const M = new THREE.Matrix4().makeRotationX(Math.PI / 2); if (s < 0) M.premultiply(new THREE.Matrix4().makeRotationY(Math.PI));
+    M.premultiply(new THREE.Matrix4().makeTranslation(xa, 0.39, s * K.TRK / 2));
+    for (const [g, m] of W) add(g.applyMatrix4(M), m);
+  };
+  for (const xa of [XF, XR]) for (const s of [-1, 1]) wheel(xa, s);
+  // --- фары HD Matrix: корпус в носу, спереди — рисунок с линзами и дневной полосой ---
+  for (const s of [-1, 1]) add(wrapDecal(bodyMesh, 1, 0.872, 0.997, s * 0.86, s * 0.30, 20, 2, 0.006), 'sq8Lamp');   // u=0 — внешний край, огибает угол
+  // --- нос: решётка/воздухозаборники (рисунок по поверхности), номер, чёрный сплиттер ---
+  add(wrapDecal(bodyMesh, 1, 0.44, 0.98, 0.82, -0.82, 40, 6), 'sq8Nose');
+  add(new THREE.BoxGeometry(0.012, 0.11, 0.52).translate(XN + 0.006, 0.555, 0), 'sq8PlateBody');
+  add(own(new THREE.PlaneGeometry(0.52, 0.11).rotateY(Math.PI / 2).translate(XN + 0.0125, 0.555, 0)), 'sq8Plate');
+  add(RB(0.08, 0.05, 1.60, 0.02, 2.44, 0.235, 0), 'sq8Matt');
+  // --- корма: световая полоса во всю ширину, фонари, рисунок, номер, диффузор с 4 овальными насадками ---
+  add(wrapDecal(bodyMesh, -1, 1.028, 1.063, -0.86, 0.86, 40, 1, 0.009), 'sq8Red');                       // полоса OLED во всю ширину
+  for (const s of [-1, 1]) add(wrapDecal(bodyMesh, -1, 0.995, 1.095, s * 0.86, s * 0.46, 16, 2, 0.006), 'sq8TailLamp');
+  add(wrapDecal(bodyMesh, -1, 0.44, 0.98, -0.82, 0.82, 40, 6), 'sq8Tail');
+  add(new THREE.BoxGeometry(0.012, 0.11, 0.52).translate(XT - 0.006, 0.80, 0), 'sq8PlateBody');
+  add(own(new THREE.PlaneGeometry(0.52, 0.11).rotateY(-Math.PI / 2).translate(XT - 0.0125, 0.80, 0)), 'sq8Plate');
+  add(RB(0.06, 0.22, 1.50, 0.025, XT + 0.015, 0.28, 0), 'sq8Matt');
+  for (const z of [-0.70, -0.56, 0.56, 0.70]) {
+    add(new THREE.CylinderGeometry(0.048, 0.048, 0.08, 20).rotateZ(Math.PI / 2).scale(1, 0.75, 1).translate(XT - 0.03, 0.37, z), 'sq8Exh');
+    add(new THREE.CylinderGeometry(0.038, 0.038, 0.082, 20).rotateZ(Math.PI / 2).scale(1, 0.75, 1).translate(XT - 0.031, 0.37, z), 'sq8Matt');
+  }
+  add(new THREE.BoxGeometry(0.14, 0.022, 1.36).rotateZ(0.23).translate(-2.13, 1.503, 0), 'sq8Black');   // козырёк-спойлер над задним стеклом
+  // --- зеркала (в цвет кузова), ручки, рейлинги, антенна, дворники ---
+  for (const s of [-1, 1]) {
+    add(RB(0.13, 0.10, 0.21, 0.035, 0.80, 1.15, s * 1.085), 'sq8Paint');
+    add(new THREE.PlaneGeometry(0.19, 0.08).rotateY(-Math.PI / 2).translate(0.733, 1.20, s * 1.09), 'sq8Mirror');
+    add(Bx(0.08, 0.05, 0.10, 0.80, 1.13, s * 0.99), 'sq8Black');
+    for (const x of [0.10, -1.0]) add(RB(0.19, 0.03, 0.03, 0.012, x, 0.985, s * 1.005), 'sq8Paint');
+    add(tube([[0.02, roofY(0.02) + 0.03, s * 0.6], [-0.5, roofY(-0.5) + 0.03, s * 0.6], [-1.0, roofY(-1.0) + 0.03, s * 0.6], [-1.5, roofY(-1.5) + 0.03, s * 0.6], [-1.95, roofY(-1.95) + 0.03, s * 0.6]], 0.018, 'sq8Black')[0], 'sq8Black');
+    for (const x of [0.02, -1.95]) add(Bx(0.10, 0.032, 0.045, x, roofY(x) - 0.004, s * 0.6), 'sq8Black');
+    add(Bx(0.03, 0.012, 0.60, 1.02, 1.128, s * 0.40), 'sq8Black');   // дворник
+  }
+  add(RB(0.17, 0.055, 0.06, 0.02, -1.80, roofY(-1.80) - 0.01, 0), 'sq8Black');   // антенна «акулий плавник»
+  // --- поворот: нос +X → +Z; низ колёс — на отметку земли ---
+  const M = new THREE.Matrix4().makeRotationY(-Math.PI / 2).setPosition(0, G, 0);
+  return mergeByMat(r.map(([g, m]) => [g.applyMatrix4(M), m]));   // ≈35 000 треугольников
+};
+}
 // Мебель. Каждый предмет собирается один раз «у себя» (в начале координат); где он стоит и как повёрнут —
 // из dom-data.js или из правок редактора (кнопка «Двигать мебель»). Правки хранятся в браузере по id предмета
 // и применяются, только пока предмет в dom-data.js не менялся (иначе главнее dom-data.js).
@@ -3952,9 +5211,8 @@ groups.furnGf = new THREE.Group(); groups.gf.add(groups.furnGf);
 groups.furnAttic = new THREE.Group(); groups.attic.add(groups.furnAttic);
 groups.furnBs = new THREE.Group(); groups.bs.add(groups.furnBs);
 groups.furnCeil = new THREE.Group(); groups.ceil.add(groups.furnCeil);   // потолочные предметы прячутся вместе с потолками в «Домике»
-const FURN_GRP = { bs: 'furnBs', gf: 'furnGf', attic: 'furnAttic' }, CEIL_TYPES = ['gridceiling', 'tracklight', 'conePendant', 'downlight', 'cubeSpot', 'ceilbeams', 'cylspot', 'ringPendant', 'collarBeams', 'woodPendant'];
-const NO_OBST = ['tenniscourt', 'rug', 'cubeSpot', 'arcLamp', 'slatWall', 'landscapeArt', 'woodPendant', 'collarBeams', 'ringPendant', 'ledMirror', 'breezewall', 'tileband', 'reliefpanel', 'dryrack', 'cylspot', 'domePendant', 'ledshelves', 'hangrail', 'ceilbeams', 'pendants', 'pendLine', 'uppers', 'curtain', 'art', 'gridceiling', 'sconce', 'tracklight', 'conePendant', 'pinboard', 'floormirror', 'wainscot', 'goldprint', 'paperholder', 'brassmirror', 'downlight', 'wcshelf'];
-const LS_PFX = D.meta.id ? 'dom3d-' + D.meta.id : 'dom3d';   // у каждого дома свои правки: все file://-страницы делят одно хранилище
+const FURN_GRP = { bs: 'furnBs', gf: 'furnGf', attic: 'furnAttic' }, CEIL_TYPES = ['gridceiling', 'tracklight', 'conePendant', 'downlight', 'cubeSpot', 'ceilbeams', 'cylspot', 'ringPendant', 'collarBeams', 'woodPendant', 'ledBatten'];
+const NO_OBST = ['tenniscourt', 'rug', 'ledBatten', 'bayLine', 'drainChannel', 'toolWall', 'airPost', 'cubeSpot', 'arcLamp', 'slatWall', 'landscapeArt', 'woodPendant', 'collarBeams', 'ringPendant', 'ledMirror', 'breezewall', 'tileband', 'reliefpanel', 'dryrack', 'cylspot', 'domePendant', 'ledshelves', 'hangrail', 'ceilbeams', 'pendants', 'pendLine', 'uppers', 'curtain', 'art', 'gridceiling', 'sconce', 'tracklight', 'conePendant', 'pinboard', 'floormirror', 'wainscot', 'goldprint', 'paperholder', 'brassmirror', 'downlight', 'wcshelf'];
 const EDIT_LS = LS_PFX + '-furniture-v1';
 const norm360 = d => ((Math.round(d) % 360) + 360) % 360;
 const EDITS = (() => { try { return JSON.parse(localStorage.getItem(EDIT_LS) || '{}'); } catch { return {}; } })();
@@ -3963,7 +5221,7 @@ let onFurnChanged = null, editMode = false;
 D.furniture.forEach((it, i) => {
   const b = BUILD[it.t]; if (!b) { console.warn('Нет типа мебели', it.t); return; }
   const lvl = it.lvl || 'gf';
-  const f = { it, lvl, key: it.id || `${it.t}#${i}`, z0: LZ[lvl] + (it.t === 'pendants' ? it.z : 0),
+  const f = { it, lvl, bld: it.bld || 'house', key: it.id || `${it.t}#${i}`, z0: LZ[lvl] + (it.t === 'pendants' ? it.z : 0),
     parts: b(it).map(([g, mat, keepUV]) => [g.index ? g.toNonIndexed() : g, mat, keepUV]),
     base: { x: it.x, y: it.y, deg: norm360(it.rot ?? ROT[it.f || '+y'] / DEG) } };   // rot — поворот в градусах (важнее f)
   const e = EDITS[f.key];
@@ -4016,7 +5274,7 @@ function prepPart(g, keepUV) {   // то же, что делает put(), но �
   g.clearGroups(); return g;
 }
 function buildFixture(f, rec, byMat, m) {
-  const grp = groups[CEIL_TYPES.includes(f.it.t) ? 'furnCeil' : FURN_GRP[f.lvl]], lgrp = groups[FURN_GRP[f.lvl]];
+  const grp = bgrp(f.bld, CEIL_TYPES.includes(f.it.t) ? 'furnCeil' : FURN_GRP[f.lvl]), lgrp = bgrp(f.bld, FURN_GRP[f.lvl]);
   rec.meshes = []; rec.lights = [];
   for (const [mat, gs] of Object.entries(byMat)) {
     const mt = MAT[mat].clone(), mesh = new THREE.Mesh(mergeGeometries(gs, false), mt);
@@ -4036,8 +5294,9 @@ function buildFixture(f, rec, byMat, m) {
 // собрать всю мебель в несколько больших объектов (быстро для видеокарты); skip — предмет, который сейчас двигают.
 // Светильники мастерской собираются отдельно (buildFixture), чтобы их можно было включать и выключать.
 function buildFurniture(skip) {
-  for (const g of [groups.furnBs, groups.furnGf, groups.furnAttic, groups.furnCeil]) for (const m of [...g.children]) { m.geometry?.dispose(); g.remove(m); }
+  for (const g of ['furnBs', 'furnGf', 'furnAttic', 'furnCeil']) clearGroup(g);
   for (const f of FURN) {
+    CUR_BLD = f.bld;
     const m = furnMatrix(f), fx = f !== skip && LIGHT_TYPES.includes(f.it.t) ? fixtureOf(f) : null, byMat = {};
     f.bb = new THREE.Box3();
     for (const [g, mat, keepUV] of f.parts) {
@@ -4048,24 +5307,26 @@ function buildFurniture(skip) {
     if (fx) buildFixture(f, fx, byMat, m);
   }
   flush();
+  CUR_BLD = 'house';
   updateFurnObst();
 }
 buildFurniture(null);
 for (const [x, y] of D.columns) OBST.gf.push({ x0: x - 0.15, x1: x + 0.15, y0: y - 0.15, y1: y + 0.15, k: 'wall' });
 for (const b of D.blocks) if (b.z[0] < 1) OBST.gf.push({ x0: b.x[0], x1: b.x[1], y0: b.y[0], y1: b.y[1], k: 'wall' });
 // препятствие лестницы: весь прямоугольник или список obst [[x0, x1, y0, y1], …] (чтобы под площадкой можно было ходить)
-for (const o of D.stair.obst || [[D.stair.x[0], D.stair.x[1], D.stair.y[0], D.stair.y[1]]]) OBST.gf.push({ x0: o[0], x1: o[1], y0: o[2], y1: o[3], k: 'stair' });
-if (D.stairBs) OBST.bs.push({ x0: D.stairBs.x[0], x1: D.stairBs.x[1], y0: D.stairBs.y[0], y1: D.stairBs.y[1], k: 'stair' });
+for (const { s, lo } of STAIRS) for (const o of s.obst || [[s.x[0], s.x[1], s.y[0], s.y[1]]]) OBST[lo].push({ x0: o[0], x1: o[1], y0: o[2], y1: o[3], k: 'stair' });
 
 // =====================================================================
 //  Участок: газон, деревья вокруг (по картинкам — хвойный лес)
 // =====================================================================
 {
+  CUR_BLD = 'site';
   const out = new THREE.CircleGeometry(260, 48); out.rotateX(-Math.PI / 2); out.translate(CENTER.x, TERR - 0.02, CENTER.z);
   put(out, 'grassOut', 'site');
-  // гравийные полосы и кусты-шары у дома — из dom-data.js (siteGravel: {x, y}, siteBushes: [x, y, радиус])
-  for (const g of D.siteGravel || []) box(g.x, g.y, [TERR, TERR + 0.02], 'gravel', 'site');
-  for (const [x, y, r] of D.siteBushes || []) put(Sp(r, x, TERR + r * 0.8, y), 'leaf', 'site');
+  // гравийные полосы и кусты-шары у дома — из dom-data.js (siteGravel: {x, y}, siteBushes: [x, y, радиус]); двигаются вместе со своим зданием
+  for (const g of D.siteGravel || []) { CUR_BLD = g.bld || 'house'; box(g.x, g.y, [TERR, TERR + 0.02], 'gravel', 'site'); }
+  for (const b of D.siteBushes || []) { CUR_BLD = b.bld || 'house'; const [x, y, r] = b; put(Sp(r, x, TERR + r * 0.8, y), 'leaf', 'site'); }
+  CUR_BLD = 'house';
 }
 // ---------- граница участка: газон по контуру, межевая лента, длины сторон, площадь в сотках ----------
 // Контур — многоугольник D.site.poly; в редакторе его углы можно тянуть. Правка хранится в браузере ('dom3d-site-v1')
@@ -4172,13 +5433,15 @@ for (const r of D.rooms) {
     // над гостиной и холлом перекрытия нет (второй свет) — там светят шары-люстры, плафон не ставим
     const open = r.lvl === 'gf' && !D.slabs.some(s => x > s.x[0] && x < s.x[1] && y > s.y[0] && y < s.y[1]);
     const z = open ? 4.6 : Math.min(ceilingAt(x, y, floorZ), floorZ + 3.2) - 0.03;
+    CUR_BLD = r.bld || 'house';
     if (!open && !r.noLamp) put(Cy(0.22, 0.03, x, z - 0.03, y), r.lvl === 'bs' ? 'ledBs' : 'lamp', r.lvl);
     if (area < 3) continue;
     const L = new THREE.PointLight(0xffd6a0, (6 + area * 0.9 / pts.length) * (r.lvl === 'bs' ? 0.55 : 1), Math.sqrt(area) * 2.2 + 3, 2);
     L.position.set(x, z - 0.25, y); L.visible = false; L.userData.lvl = r.lvl;
-    groups.lights.add(L); roomLights.push(L);
+    bgrp(CUR_BLD, 'lights').add(L); roomLights.push(L);
   }
 }
+CUR_BLD = 'house';
 // Свет ламп проходит сквозь стены (тени у них выключены ради скорости). Чтобы в мастерской с выключенными светильниками
 // было темно, пока камера внутри неё, лампы других комнат (и мансарды над ней), которые до неё достают, гасятся.
 const FIX_ROOMS = D.rooms.filter(r => r.fixtures).map(r => { const xs = r.poly.map(p => p[0]), ys = r.poly.map(p => p[1]);
@@ -4191,7 +5454,7 @@ function updateLeak() {
   for (const L of roomLights) L.intensity = inside && L.userData.leak ? 0 : L.userData.i0;
 }
 // отдельные лампы из dom-data.js (раздел lights, горят всегда): x, y, z плана, color, i — сила, d — радиус
-for (const l of D.lights) { const L = new THREE.PointLight(l.color ?? 0xff8a3c, l.i ?? 4, l.d ?? 5, 2); L.position.set(l.x, l.z, l.y); groups.lights.add(L); }
+for (const l of D.lights) { const L = new THREE.PointLight(l.color ?? 0xff8a3c, l.i ?? 4, l.d ?? 5, 2); L.position.set(l.x, l.z, l.y); bgrp(l.bld || 'house', 'lights').add(L); }
 
 const hemi = new THREE.HemisphereLight(0xdfefff, 0x8a8170, 1.1);
 const amb = new THREE.AmbientLight(0xffffff, 0.35);   // рассеянный свет, чтобы потолки внутри не были тёмными
@@ -4276,6 +5539,7 @@ for (const b of document.querySelectorAll('[data-time]')) b.onclick = () => setT
 // =====================================================================
 //  Подписи комнат и переключатели
 // =====================================================================
+const roomLabels = [];   // подписи лежат в подгруппах зданий, поэтому видимость ставится каждой подписи отдельно
 for (const r of D.rooms) {
   const xs = r.poly.map(p => p[0]), ys = r.poly.map(p => p[1]);
   const el = document.createElement('div'); el.className = 'label';
@@ -4283,7 +5547,7 @@ for (const r of D.rooms) {
   const o = new CSS2DObject(el);
   o.position.set(xs.reduce((a, b) => a + b) / xs.length, LZ[r.lvl] + 1.3, ys.reduce((a, b) => a + b) / ys.length);
   o.userData.lvl = r.lvl;
-  groups.labels.add(o);
+  bgrp(r.bld || 'house', 'labels').add(o); roomLabels.push(o);
 }
 flush();
 
@@ -4313,7 +5577,7 @@ function applyVisibility() {
     if (view === 'doll-bs') groups.gf.visible = groups.site.visible = false;   // цоколь: убираем 1 этаж и землю
   }
   else { groups.roof.visible = tRoof.checked && tAttic.checked; groups.attic.visible = groups.ceil.visible = tAttic.checked; }
-  for (const o of groups.labels.children)
+  for (const o of roomLabels)
     o.visible = !showNames || isWalk() ? false : doll ? o.userData.lvl === view.slice(5) : o.userData.lvl === 'gf' || (o.userData.lvl === 'attic' && tAttic.checked);
   $('where').style.display = isWalk() && showNames ? 'block' : 'none';
   $('bNamesOn').classList.toggle('on', showNames); $('bNamesOff').classList.toggle('on', !showNames);
@@ -4391,16 +5655,27 @@ function placePlayer(lvl, x, y, yaw) {
 }
 function goWalk(lvl, x, y, yaw) { placePlayer(lvl, x, y, yaw); setView('walk-' + lvl); }
 
-// ---------- лестница: E — на другой этаж ----------
-const ST = D.stair;
-const SX1 = ST.mirror ? ST.x[1] - ST.flight / 2 : ST.x[0] + ST.flight / 2, SX2 = ST.mirror ? ST.x[0] + ST.flight / 2 : ST.x[1] - ST.flight / 2;   // низ 1-го и верх 2-го марша
-const ST_N1 = ST.split ?? ST.risers / 2, ST_TOP = ST.y[1] - (ST_N1 - 1) * ST.tread + (ST.risers - ST_N1 - 1) * ST.tread;   // где кончается верхний марш
-const STAIR = { bs: { x: SX1, y: ST.y[1] + 0.6 }, gf: { x: SX1, y: ST.y[1] + 0.6 }, attic: { x: SX2, y: ST_TOP + 0.5 } };
-// куда ведёт лестница: E — наверх, Q — вниз (в цоколь)
-const STAIR_GO = { bs: { KeyE: 'gf' }, gf: D.levels.bs ? { KeyE: 'attic', KeyQ: 'bs' } : { KeyE: 'attic' }, attic: { KeyE: 'gf' } };
-const nearStair = () => Math.hypot(player.x - STAIR[player.lvl].x, player.y - STAIR[player.lvl].y) < 1.6;
+// ---------- лестницы: E — наверх, Q — вниз. У каждой лестницы (дома и пристроек) две точки: внизу и наверху ----------
+for (const st of STAIRS) {
+  const s = st.s, l = s.local, x1 = s.mirror ? l.x[1] - s.flight / 2 : l.x[0] + s.flight / 2, x2 = s.mirror ? l.x[0] + s.flight / 2 : l.x[1] - s.flight / 2;   // низ 1-го и верх 2-го марша
+  const n1 = s.split ?? s.risers / 2, top = l.y[1] - (n1 - 1) * s.tread + (s.risers - n1 - 1) * s.tread;   // где кончается верхний марш
+  st.pt = { [st.lo]: s.T.pt([x1, l.y[1] + 0.6]), [st.hi]: s.T.pt([x2, top + 0.5]) };
+  st.pt[st.lo] = { x: st.pt[st.lo][0], y: st.pt[st.lo][1] }; st.pt[st.hi] = { x: st.pt[st.hi][0], y: st.pt[st.hi][1] };
+}
+const stairPts = lvl => STAIRS.filter(st => st.pt[lvl]).map(st => st.pt[lvl]);   // точки «E» на уровне
+const nearStairs = () => STAIRS.filter(st => st.pt[player.lvl] && Math.hypot(player.x - st.pt[player.lvl].x, player.y - st.pt[player.lvl].y) < 1.6);
+const nearStair = () => nearStairs().length > 0;
+// куда можно уйти от ближайшей лестницы: { KeyE: уровень выше, KeyQ: уровень ниже }
+function stairGo() {
+  const go = {};
+  for (const st of nearStairs()) { if (st.lo === player.lvl) go.KeyE = st.hi; if (st.hi === player.lvl) go.KeyQ = st.lo; }
+  return go;
+}
 function fade(cb) { $('fade').style.opacity = 1; setTimeout(() => { cb(); $('fade').style.opacity = 0; }, 260); }
-function changeFloor(to) { fade(() => goWalk(to, STAIR[to].x, STAIR[to].y, 0)); }
+function changeFloor(to) {
+  const st = nearStairs().find(st => st.lo === to || st.hi === to), p = st ? st.pt[to] : stairPts(to)[0];
+  fade(() => goWalk(to, p.x, p.y, 0));
+}
 
 // ---------- управление ----------
 const keys = {};
@@ -4408,8 +5683,8 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if (isWalk() && e.code.startsWith('Arrow')) e.preventDefault();
   if (!isWalk()) return;
-  const to = STAIR_GO[player.lvl][e.code];
-  if (to && nearStair()) changeFloor(to);
+  const to = stairGo()[e.code];
+  if (to) changeFloor(to);
   if (e.code === 'KeyM') $('map').style.display = $('map').style.display === 'none' ? 'block' : 'none';
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -4486,7 +5761,8 @@ for (const lvl of ['gf', 'attic', 'bs'].filter(l => D.levels[l])) {
 
 // ---------- мини-карта (как на бумажном плане: север внизу) ----------
 const mapC = $('mapc'), mctx = mapC.getContext('2d');
-const MAP = V.map;
+// карта: из view.map (левый верхний угол и пикс/м) или по границам всех построек (BOUNDS) на весь холст
+const MAP = D.view?.map || (() => { const k = Math.min(mapC.width / (BOUNDS.x1 - BOUNDS.x0), mapC.height / (BOUNDS.y1 - BOUNDS.y0)); return { x0: BOUNDS.x0, y0: BOUNDS.y0, k }; })();
 const mx = x => (x - MAP.x0) * MAP.k, my = y => (y - MAP.y0) * MAP.k;
 const mapStatic = {};
 let mapLvl = null;
@@ -4499,16 +5775,16 @@ function buildMap(lvl) {
   else if (lvl === 'gf') for (const f of D.floors) { if (f.base === undefined) rect(f.x[0], f.x[1], f.y[0], f.y[1], f.m === 'paving' ? '#8c8f93' : f.m === 'gravel' ? '#cbc5b9' : '#dddbd5'); }
   else {
     for (const s of D.slabs) rect(s.x[0], s.x[1], s.y[0], s.y[1], '#d6d4ce');
-    for (let x = -1; x < 30; x += 0.2) for (let y = -1; y < 31; y += 0.2)   // низкие места под скатом
+    for (let x = BOUNDS.x0; x < BOUNDS.x1; x += 0.2) for (let y = BOUNDS.y0; y < BOUNDS.y1; y += 0.2)   // низкие места под скатом
       if (D.slabs.some(s => inRect(s, x, y)) && ceilingAt(x, y, AT) - AT < 1.8) rect(x, x + 0.2, y, y + 0.2, '#b9b6b0');
   }
   for (const r of D.rooms.filter(r => r.lvl === lvl)) {
     const f = finishOf(r.name);
-    g.fillStyle = f === 'tile' ? 'rgba(214,226,234,.85)' : f === 'concrete' ? 'rgba(200,200,198,.85)' : 'rgba(240,224,200,.85)';
+    g.fillStyle = f === 'tile' ? 'rgba(214,226,234,.85)' : f === 'concrete' || f === 'epoxy' || f === 'washTile' ? 'rgba(200,200,198,.85)' : 'rgba(240,224,200,.85)';
     g.beginPath(); r.poly.forEach(([x, y], i) => i ? g.lineTo(mx(x), my(y)) : g.moveTo(mx(x), my(y))); g.closePath(); g.fill();
   }
   for (const o of OBST[lvl]) if (!o.off) rect(o.x0, o.x1, o.y0, o.y1, o.k === 'door' ? '#8a5a35' : o.k === 'wall' ? '#2f3236' : o.k === 'stair' ? '#b49870' : '#9d978c');
-  const s = STAIR[lvl]; g.fillStyle = '#c0392b'; g.font = 'bold 11px Segoe UI'; g.fillText('E', mx(s.x) - 3, my(s.y) + 4);
+  g.fillStyle = '#c0392b'; g.font = 'bold 11px Segoe UI'; for (const s of stairPts(lvl)) g.fillText('E', mx(s.x) - 3, my(s.y) + 4);
   g.fillStyle = '#333'; g.font = '11px Segoe UI'; g.fillText(V.northDeg === 180 ? 'Север ↑' : 'Север ↓', 4, c.height - 5); g.fillText(LVL_NAME[lvl], 4, 12);
   return c;
 }
@@ -4533,7 +5809,7 @@ function updateHud() {
   if (!isWalk()) return;
   const r = roomAt(player.lvl, player.x, player.y);
   const txt = `${LVL_NAME[player.lvl]} · ${r ? r.name : (player.lvl === 'gf' && floorZ('gf', player.x, player.y) < -0.1 ? 'участок' : 'проход')}` +
-    (nearStair() ? { bs: ' — E: подняться на 1 этаж', gf: D.levels.bs ? ' — E: на мансарду, Q: в цоколь' : ' — E: на мансарду', attic: ' — E: спуститься' }[player.lvl] : '');
+    (() => { const go = stairGo(), s = []; if (go.KeyE) s.push('E: наверх (' + LVL_NAME[go.KeyE].toLowerCase() + ')'); if (go.KeyQ) s.push('Q: вниз (' + LVL_NAME[go.KeyQ].toLowerCase() + ')'); return s.length ? ' — ' + s.join(', ') : ''; })();
   if (txt !== lastWhere) {
     $('where').textContent = lastWhere = txt;
     for (const q of D.rooms) q.el.classList.toggle('here', q === r);
@@ -4548,14 +5824,17 @@ function shapePanel(p) {
   const pos = p.g.attributes.position, pitch = p.w / p.folds, A = 0.5 * Math.sqrt(Math.max(p.L.s0 * p.L.s0 - pitch * pitch, 0.00004));
   for (let i = 0; i < pos.count; i++) {
     const u = (i % (p.seg + 1)) / p.seg;
-    pos.setXYZ(i, p.side < 0 ? p.anchor + u * p.w : p.anchor - p.w + u * p.w, p.ys[i], p.L.y + A * Math.sin(u * p.folds * Math.PI * 2));   // обе половины слева направо (одинаковый обход граней)
+    const along = p.side < 0 ? p.anchor + u * p.w : p.anchor - p.w + u * p.w, across = p.L.y + A * Math.sin(u * p.folds * Math.PI * 2);   // обе половины слева направо (одинаковый обход граней)
+    if (p.alongX) pos.setXYZ(i, along, p.ys[i], across); else pos.setXYZ(i, across, p.ys[i], along);
   }
   pos.needsUpdate = true; p.g.computeVertexNormals(); p.g.computeBoundingSphere(); p.g.computeBoundingBox();
 }
+// шторы вдоль окна по X (x — диапазон, y — линия карниза) или по Y (y — диапазон, x — линия); in — в какую сторону комната (±1)
 for (const dr of D.drapes || []) {
-  const z0 = LZ[dr.lvl], H = GF_H - 0.06, half = (dr.x[1] - dr.x[0]) / 2 + 0.04;
+  const alongX = Array.isArray(dr.x), span = alongX ? dr.x : dr.y, line = alongX ? dr.y : dr.x, inn = dr.in ?? 1;
+  const z0 = LZ[dr.lvl], H = GF_H - 0.06, half = (span[1] - span[0]) / 2 + 0.04;
   const rec = { name: dr.name, lvl: dr.lvl, meshes: [], panels: [], state: 0, isOpen: true };
-  const layers = [{ mat: 'tulle', y: dr.y, open: 0.32, step: 0.075, s0: 0.1, k: 1 }, { mat: 'drape', y: dr.y + 0.12, open: 0.45, step: 0.09, s0: 0.12, k: 2 }];
+  const layers = [{ mat: 'tulle', y: line, open: 0.32, step: 0.075, s0: 0.1, k: 1 }, { mat: 'drape', y: line + 0.12 * inn, open: 0.45, step: 0.09, s0: 0.12, k: 2 }];
   for (const L of layers) for (const side of [-1, 1]) {
     const folds = Math.round(half / L.step), seg = folds * 4, g = new THREE.PlaneGeometry(1, H, seg, 1);
     const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * folds * L.s0, uv.getY(i) * H);   // uv в метрах ткани
@@ -4563,12 +5842,13 @@ for (const dr of D.drapes || []) {
     const m = new THREE.Mesh(g, MAT[L.mat].clone());
     m.castShadow = L.mat === 'drape'; m.receiveShadow = true;
     m.userData = { door: rec, em: m.material.emissive.getHex(), ei: m.material.emissiveIntensity };
-    groups[dr.lvl].add(m); rec.meshes.push(m);
-    const p = { m, g, L, side, ys, folds, seg, anchor: side < 0 ? dr.x[0] : dr.x[1], w: L.open, wOpen: L.open, wClosed: half };
+    bgrp(dr.bld || 'house', dr.lvl).add(m); rec.meshes.push(m);
+    const p = { m, g, L, side, ys, folds, seg, alongX, anchor: side < 0 ? span[0] : span[1], w: L.open, wOpen: L.open, wClosed: half };
     rec.panels.push(p); shapePanel(p);
   }
-  const rail = new THREE.Mesh(new THREE.BoxGeometry(dr.x[1] - dr.x[0], 0.03, 0.2), MAT.white);   // потолочный карниз
-  rail.position.set((dr.x[0] + dr.x[1]) / 2, z0 + GF_H - 0.015, dr.y + 0.06); groups.ceil.add(rail);
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(alongX ? span[1] - span[0] : 0.2, 0.03, alongX ? 0.2 : span[1] - span[0]), MAT.white);   // потолочный карниз
+  if (alongX) rail.position.set((span[0] + span[1]) / 2, z0 + GF_H - 0.015, line + 0.06 * inn); else rail.position.set(line + 0.06 * inn, z0 + GF_H - 0.015, (span[0] + span[1]) / 2);
+  bgrp(dr.bld || 'house', 'ceil').add(rail);
   rec.toggle = () => { rec.state = (rec.state + 1) % 3; };
   rec.label = () => ['закрыть тюль', 'закрыть шторы', 'открыть всё'][rec.state];
   DRAPES.push(rec);
@@ -4653,6 +5933,10 @@ const TYPE_RU = { tenniscourt: 'Теннисный корт с садом', ston
   pendLine: 'Подвесные лампы', floorlamp: 'Торшер', curtain: 'Штора', art: 'Картина', ironing: 'Гладильный стол Jack L5-15F + парогенератор Malkan',
   sewtable: 'Промышленная машина JACK', loungeChair: 'Кресло', chunkyPouf: 'Пуф', pedestalTable: 'Столик', arcLamp: 'Торшер', slatWall: 'Реечная панель с полкой', landscapeArt: 'Картина', platformBed: 'Кровать', oakNightstand: 'Прикроватная тумбочка', oakDresser: 'Комод', windowDesk: 'Стол у окна', spindleChair: 'Стул', woodPendant: 'Подвесной светильник', libLadder: 'Лестница библиотеки', libraryWall: 'Стеллаж-библиотека', roundCoffee: 'Круглый столик', sageVanity: 'Тумба с двумя раковинами', showerAlcove: 'Душ-ниша', wcPair: 'Унитаз и биде', freeTub: 'Ванна', towelWarmer: 'Сушилка для полотенец', collarBeams: 'Балки со светильниками', teakLounge: 'Уличное кресло', planterBox: 'Кашпо со злаками', ledMirror: 'Зеркало с подсветкой', glassWardrobe: 'Шкафы со стеклянными дверцами', vanityDesk: 'Туалетный столик', bandPouf: 'Пуф', drawerChest: 'Комод с мраморной столешницей', ringPendant: 'Люстра из колец', cuttable: 'Раскроечный стол', cutisland: 'Раскроечный остров', sewcabinet: 'Шкаф мастерской', taskchair: 'Рабочее кресло', tubchair: 'Кресло букле', drumtable: 'Столик из травертина', imacdesk: 'Стол с iMac', laundrycounter: 'Тумба с раковиной и машинами', kitchentall: 'Кухонные колонны', stonetable: 'Столик из ореха', wardrobeRun: 'Шкафы гардеробной', breezewall: 'Стена из блоков', sideboard: 'Комод', diningdesk: 'Обеденный стол', woodarmchair: 'Кресло', banquette: 'Диван-скамья', island2: 'Кухонный остров', woodstool: 'Стул у острова', domePendant: 'Подвесы над островом', kitchenrun: 'Кухонный гарнитур', cylspot: 'Точечные светильники', laundrywall: 'Стена прачечной', dryrack: 'Сушилка для белья', ledshelves: 'Полки с подсветкой', laundrytall: 'Высокий шкаф', hangrail: 'Штанга для одежды', ceilbeams: 'Балки на потолке', olivetree: 'Оливковое дерево', laundrybasket: 'Корзина для белья', reliefpanel: 'Панно с горой', tileband: 'Дорожка из плитки', wainscot: 'Стеновые панели', wctoilet: 'Подвесной унитаз', powderbasin: 'Раковина с полотенцем', brassmirror: 'Зеркало и бра', wcshelf: 'Полка с декором', goldprint: 'Картина', paperholder: 'Держатель бумаги', toiletbrush: 'Ёршик', downlight: 'Точечный светильник', strelitzia: 'Стрелиция в кашпо', workdesk: 'Рабочее место с iMac', deskchair: 'Рабочее кресло', brasslamp: 'Латунный торшер', pinboard: 'Доска вдохновения', floormirror: 'Зеркало в рост', podium: 'Подиум для примерки', tracklight: 'Трековый свет', conePendant: 'Подвесные лампы', driedvase: 'Вазы с сухоцветами', fabricshelf: 'Стеллаж с тканями', mannequin: 'Манекен',
   gridceiling: 'Решётчатый потолок', screenwall: 'Экран с тумбой и полками', cinemasofa: 'П-образный диван', roundtable: 'Круглый столик',
+  audiS8: 'Audi S8 (Emerald Green)', audiSQ8: 'Audi SQ8 (Sakhir Gold)', tundra: 'Toyota Tundra TRD Off-Road', ledBatten: 'Линейный светильник', bayLine: 'Разметка машино-места', tireRack: 'Стеллаж для колёс',
+  toolChest: 'Инструментальная тележка', garageCab: 'Гаражные шкафы', washStation: 'Мойка высокого давления', drainChannel: 'Дренажный лоток', vacStation: 'Пылесос', compressor: 'Компрессор',
+  scissorLift: 'Ножничный подъёмник', washCart: 'Тележка для мойки', atv: 'Квадроцикл', snowmobile: 'Снегоход', trailer: 'Прицеп', workbench: 'Верстак', toolWall: 'Панель с инструментом',
+  assemblyTable: 'Сборочный стол', steelCab: 'Стальной шкаф', lowCabs: 'Шкафы под скатом', machine: 'Станок', airPost: 'Пост подкачки шин',
   xmastree: 'Новогодняя ёлка', coffeebar: 'Кофейный буфет', treadmill: 'Беговая дорожка', spinbike: 'Велотренажёр', rower: 'Гребной тренажёр', cabletower: 'Кроссовер (блоки)', powerrack: 'Силовая рама', platetree: 'Стойка для блинов', dbrack: 'Стойка с гантелями', adjbench: 'Регулируемая скамья', kbrack: 'Полка с гирями', yogaroll: 'Коврики и мячи', walltv: 'Экран для занятий', pouf: 'Пуф', ottoman: 'Кожаный пуф', sconce: 'Бра', storageshelf: 'Стеллаж с контейнерами и чемоданами' };
 const LOW_PICK = ['tenniscourt', 'rug', 'pendants', 'pendLine', 'curtain'];   // их выбираем, только если под мышью больше ничего нет
 let sel = null, selGroup = null, selBox = null, fdrag = null, downAt = null;
@@ -4676,6 +5960,7 @@ function placeSel() {
 function selectFurn(f) {
   if (sel === f) return;
   deselectFurn(true);
+  if (bldSel) { bldSel = null; buildBldHandles(); showBldInfo(); }
   sel = f;
   buildFurniture(f);   // всё, кроме выбранного, — одним куском; выбранный — отдельно, чтобы его можно было двигать
   selGroup = new THREE.Group();
@@ -4711,6 +5996,7 @@ function setEdit(on) {
   if (on) { if (!view.startsWith('doll')) setView(isWalk() ? 'doll-' + player.lvl : 'doll-gf'); $('hint').textContent = 'Режим расстановки мебели. Колесо — приблизить, тянуть пустое место — вращать вид, правая кнопка — сдвинуть вид.'; }
   else { deselectFurn(); controls.enabled = !isWalk(); if (!isWalk()) $('hint').textContent = HINTS[view.startsWith('doll') ? 'doll' : 'orbit']; }
   updateEditButtons(); siteSel = null; buildSiteHandles(); applyVisibility();
+  bldSel = null; for (const B of Object.values(BLD)) B.next = null; buildBldHandles(); showBldInfo();
 }
 $('bEdit').onclick = () => setEdit(!editMode);
 $('eDone').onclick = () => deselectFurn();
@@ -4724,6 +6010,7 @@ $('eSave').onclick = () => {
   const txt = `// Расстановка мебели из редактора, ${new Date().toLocaleString('ru')}. Передвинуто предметов: ${n}.\n` +
     `// x, y — новое место, deg — поворот (0 = лицом на север/въезд); bx, by, bdeg — как было в dom-data.js.\n` +
     (JSON.stringify(SITE) !== JSON.stringify(SITE_BASE) ? `// Граница участка (углы x, y): poly — новая, base — как было в dom-data.js.\nwindow.SITE_EDITS = ${JSON.stringify({ poly: SITE, base: SITE_BASE })};\n` : '') +
+    (Object.keys(saveBld()).length ? `// Положение зданий (x, y, rot — новое; bx, by, brot — как было в dom-data.js).\nwindow.BLD_EDITS = ${JSON.stringify(saveBld())};\n` : '') +
     `window.FURN_EDITS = ${JSON.stringify(out, null, 1)};\n`;
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/javascript' }));
   a.download = 'furniture-edits.js'; a.click();
@@ -4808,8 +6095,104 @@ $('eSiteReset').onclick = () => {
   if (!confirm('Вернуть границы участка как в проекте (dom-data.js)?')) return;
   SITE.splice(0, SITE.length, ...SITE_BASE.map(p => [...p])); siteSel = null; refreshSite(true);
 };
-onViewChange = buildSiteHandles;
 updateSiteInfo();
+
+// ---------- здания: в редакторе у каждого здания — синяя метка с названием на земле (в центре постройки). Тянуть метку — двигать
+// здание целиком, Q / E — повернуть на 90°. Пока тянешь, двигаются только картинки; после отпускания страница перестраивается
+// на новом месте (стены, проходы, карта считаются заново). Правка хранится в браузере (…-buildings-v1) и уходит в файл через «Сохранить в файл».
+const bldHandles = new THREE.Group(); scene.add(bldHandles);
+let bldSel = null, bldDrag = null;
+DOT.b = dotTex('#2f6f9f');
+const bldCenter = B => {   // центр постройки на участке — по её стенам
+  const xs = [], ys = [];
+  for (const w of D.walls) if ((w.bld || 'house') === B.key && w.kind !== 'rail' && w.kind !== 'parapet') { xs.push(w.a[0], w.b[0]); ys.push(w.a[1], w.b[1]); }
+  return xs.length ? [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2] : [B.pos.x, B.pos.y];
+};
+function buildBldHandles() {
+  for (const o of [...bldHandles.children]) { o.material?.dispose(); o.element?.remove(); bldHandles.remove(o); }
+  bldHandles.visible = editMode && !isWalk() && view !== 'doll-bs';
+  if (!bldHandles.visible) return;
+  for (const B of Object.values(BLD)) {
+    B.c ??= bldCenter(B);
+    const [cx, cy] = B.next ? xfPoint(B, B.c) : B.c;
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: B === bldSel ? DOT.s : DOT.b, sizeAttenuation: false, depthTest: false }));
+    s.scale.setScalar(0.05); s.position.set(cx, TERR + 0.05, cy); s.renderOrder = 10; s.userData.B = B; bldHandles.add(s);
+    const el = document.createElement('div'); el.className = 'bldTag' + (B === bldSel ? ' on' : ''); el.textContent = '⌂ ' + B.name;
+    const o = new CSS2DObject(el); o.position.set(cx, TERR + 0.5, cy); bldHandles.add(o);
+  }
+}
+// матрица «из прежнего положения в новое» для картинок здания и та же пересадка для точки
+const bldDelta = B => { const a = B.pos, b = B.next || B.pos; return new THREE.Matrix4().makeTranslation(b.x, 0, b.y).multiply(new THREE.Matrix4().makeRotationY((b.rot - a.rot) * DEG)).multiply(new THREE.Matrix4().makeTranslation(-a.x, 0, -a.y)); };
+const xfPoint = (B, [x, y]) => { const v = new THREE.Vector3(x, 0, y).applyMatrix4(bldDelta(B)); return [v.x, v.z]; };
+function previewBld(B) {
+  const M = bldDelta(B);
+  for (const g of Object.values(BG[B.key] || {})) { g.matrix.copy(M); g.matrixAutoUpdate = false; g.matrixWorldNeedsUpdate = true; }
+  buildBldHandles(); showBldInfo();
+}
+function showBldInfo() {
+  if (!bldSel) { $('eBld').innerHTML = '<b>⌂ Здания</b>: щёлкни синюю метку дома или гаража, чтобы двигать его целиком'; $('eBldReset').disabled = true; return; }
+  const p = bldSel.next || bldSel.pos;
+  $('eBld').innerHTML = `<b>⌂ ${bldSel.name}</b> · x ${p.x.toFixed(2)} м, y ${p.y.toFixed(2)} м, поворот ${p.rot}°<br><span class="ehint">Отпустишь — страница перестроится на новом месте (пара секунд)</span>`;
+  $('eBldReset').disabled = p.x === bldSel.base.x && p.y === bldSel.base.y && p.rot === bldSel.base.rot;
+}
+function pickBld(e) {
+  if (!bldHandles.visible) return null;
+  const b = cvs.getBoundingClientRect(), v = new THREE.Vector3();
+  let best = null, bd = 22;
+  for (const B of Object.values(BLD)) {
+    const [cx, cy] = B.next ? xfPoint(B, B.c) : B.c;
+    v.set(cx, TERR + 0.05, cy).project(camera); if (v.z > 1) continue;
+    const d = Math.hypot((v.x + 1) / 2 * b.width + b.left - e.clientX, (1 - v.y) / 2 * b.height + b.top - e.clientY);
+    if (d < bd) { bd = d; best = B; }
+  }
+  return best;
+}
+function saveBld() {
+  const out = {};
+  for (const B of Object.values(BLD)) if (B.pos.x !== B.base.x || B.pos.y !== B.base.y || B.pos.rot !== B.base.rot) out[B.key] = { x: B.pos.x, y: B.pos.y, rot: B.pos.rot, bx: B.base.x, by: B.base.y, brot: B.base.rot };
+  try { localStorage.setItem(BLD_LS, JSON.stringify(out)); } catch {}
+  return out;
+}
+function reloadKeepView(extra = {}) {   // перестроить страницу, оставив вид, камеру, время и редактор
+  const Q = new URLSearchParams(location.search);
+  for (const k of ['pos', 'yaw', 'pitch', 'sel', 'bsel', 'check']) Q.delete(k);
+  Q.set('view', view); Q.set('edit', '1'); Q.set('time', curTime);
+  Q.set('cam', [camera.position.x, camera.position.z, camera.position.y].map(v => v.toFixed(2)).join(','));
+  Q.set('target', [controls.target.x, controls.target.z, controls.target.y].map(v => v.toFixed(2)).join(','));
+  for (const [k, v] of Object.entries(extra)) Q.set(k, v);
+  $('fade').style.opacity = 1; $('hint').textContent = 'Перестраиваю на новом месте…';
+  setTimeout(() => location.replace(location.pathname + '?' + Q), 60);
+}
+function commitBld(B) {
+  if (!B.next) return;
+  if (B.next.x === B.pos.x && B.next.y === B.pos.y && B.next.rot === B.pos.rot) { B.next = null; previewBld(B); return; }
+  B.pos = B.next; B.next = null; saveBld(); reloadKeepView({ bsel: B.key });
+}
+function rotateBld(B, d) {   // поворот на 90° вокруг центра постройки: центр остаётся на месте
+  const p = B.next || B.pos, c = B.c, T = bldXf({ x: 0, y: 0, rot: d }), v = T.vec([p.x - c[0], p.y - c[1]]);
+  B.next = { x: +(c[0] + v[0]).toFixed(3), y: +(c[1] + v[1]).toFixed(3), rot: ((p.rot + d) % 360 + 360) % 360 };
+  previewBld(B); commitBld(B);
+}
+cvs.addEventListener('pointerdown', e => {
+  if (!editMode || e.button !== 0) return;
+  const B = pickBld(e);
+  if (!B) { if (bldSel) { bldSel = null; buildBldHandles(); showBldInfo(); } return; }
+  deselectFurn(); bldSel = B; siteSel = null; buildSiteHandles();
+  dragPlane.constant = -TERR; const h = mouseRay(e).intersectPlane(dragPlane, new THREE.Vector3());
+  bldDrag = h ? { dx: B.pos.x - h.x, dy: B.pos.y - h.z, moved: false } : null;
+  B.next = { ...B.pos }; previewBld(B);
+  controls.enabled = false; cvs.setPointerCapture(e.pointerId); e.stopImmediatePropagation();
+}, { capture: true });
+cvs.addEventListener('pointermove', e => {
+  if (!bldDrag || !bldSel) return;
+  dragPlane.constant = -TERR; const h = mouseRay(e).intersectPlane(dragPlane, new THREE.Vector3()); if (!h) return;
+  const snap = v => e.altKey ? +v.toFixed(2) : Math.round(v * 10) / 10;
+  bldSel.next = { x: snap(h.x + bldDrag.dx), y: snap(h.z + bldDrag.dy), rot: bldSel.next.rot }; bldDrag.moved = true; previewBld(bldSel);
+});
+cvs.addEventListener('pointerup', () => { if (!bldDrag) return; bldDrag = null; controls.enabled = true; if (bldSel) commitBld(bldSel); });
+$('eBldReset').onclick = () => { if (!bldSel) return; bldSel.next = { ...bldSel.base }; previewBld(bldSel); commitBld(bldSel); };
+onViewChange = () => { buildSiteHandles(); buildBldHandles(); };
+showBldInfo();
 
 // перехват до OrbitControls: если щёлкнули по мебели, вид не вращаем
 cvs.addEventListener('pointerdown', e => {
@@ -4836,8 +6219,11 @@ cvs.addEventListener('pointerup', e => {
 });
 addEventListener('keydown', e => {
   if (!editMode || isWalk()) return;
-  if (e.code === 'Escape') return deselectFurn();
-  if (!sel) return;
+  if (e.code === 'Escape') { if (bldSel) { bldSel = null; buildBldHandles(); showBldInfo(); } return deselectFurn(); }
+  if (!sel) {   // выбрано здание: Q / E — поворот на 90°
+    if (bldSel && !bldDrag && (e.code === 'KeyQ' || e.code === 'KeyE')) { rotateBld(bldSel, e.code === 'KeyQ' ? -90 : 90); e.preventDefault(); }
+    return;
+  }
   const st = e.shiftKey ? 90 : 15;
   if (e.code === 'KeyQ') rotateSel(-st);
   else if (e.code === 'KeyE') rotateSel(st);
@@ -4864,7 +6250,7 @@ setMode('day');
     goWalk(lvl, p.length === 2 ? p[0] : s[0], p.length === 2 ? p[1] : s[1], Number(Q.get('yaw') ?? s[2]));
     player.pitch = player.vpitch = Number(Q.get('pitch') ?? 0);
   } else setView(v);
-  if (Q.get('edit')) { setEdit(true); const f = FURN.find(f => f.key === Q.get('sel')); if (f) selectFurn(f); }
+  if (Q.get('edit')) { setEdit(true); const f = FURN.find(f => f.key === Q.get('sel')); if (f) selectFurn(f); const B = BLD[Q.get('bsel')]; if (B) { bldSel = B; buildBldHandles(); showBldInfo(); } }
   const xyz = k => Q.get(k)?.split(',').map(Number);
   if (xyz('cam')) { const [x, y, h] = xyz('cam'); camera.position.set(x, h, y); }
   if (xyz('target')) { const [x, y, h] = xyz('target'); controls.target.set(x, h, y); }
@@ -4881,7 +6267,7 @@ function selfCheck() {
     const lvl = w.lvl;
     for (const op of ops) {
       const zs = op.pts.map(p => p[1]);
-      if (op.o.k === 'gate' || op.o.k === 'win' || Math.min(...zs) > 0.05 || Math.max(...zs) < 1.9) continue;   // окно от пола — не дверь
+      if ((op.o.k === 'gate' && !op.o.lift) || op.o.k === 'win' || Math.min(...zs) > 0.05 || Math.max(...zs) < 1.9) continue;   // окно от пола — не дверь
       const bot = op.pts.filter(p => p[1] < 1e-3).map(p => p[0]), s0 = Math.min(...bot), s1 = Math.max(...bot);
       const nx = -uy, ny = ux, hits = new Set();
       for (const side of [-1, 1]) for (const d of [w.t / 2 + 0.25, w.t / 2 + 0.7]) for (const f of [0.2, 0.5, 0.8]) {
@@ -4895,8 +6281,12 @@ function selfCheck() {
   for (const lvl of LVLS) {
     const st = START[lvl], step = 0.1, x0 = V.grid.x0, y0 = V.grid.y0, nx = Math.round(V.grid.w / step), ny = Math.round(V.grid.h / step), seen = new Uint8Array(nx * ny), q = [];
     const id = (i, j) => j * nx + i;
-    const si = Math.round((st[0] - x0) / step), sj = Math.round((st[1] - y0) / step);
-    seen[id(si, sj)] = 1; q.push(si, sj);
+    // идём от старта уровня и от каждой лестницы на нём (пристройки на мансарде связаны с домом только через свои лестницы)
+    for (const p of [{ x: st[0], y: st[1] }, ...stairPts(lvl)]) {
+      const [fx, fy] = freeSpot(lvl, p.x, p.y), si = Math.round((fx - x0) / step), sj = Math.round((fy - y0) / step);
+      if (si < 0 || sj < 0 || si >= nx || sj >= ny) continue;
+      seen[id(si, sj)] = 1; q.push(si, sj);
+    }
     while (q.length) {
       const j = q.pop(), i = q.pop();
       for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -4914,6 +6304,11 @@ function selfCheck() {
       }
       if (!free || reach < free * 0.8) out.push(`НЕ ДОЙТИ: ${LVL_NAME[lvl]} — ${r.n}. ${r.name} (доступно ${free ? Math.round(reach / free * 100) : 0}% пола)`);
     }
+  }
+  // ?probe=lvl,x,y;… — для отладки: свободна ли точка и что её загораживает
+  for (const pr of (new URLSearchParams(location.search).get('probe') || '').split(';').filter(Boolean)) {
+    const [lvl, x, y] = pr.split(','), px = +x, py = +y, hits = OBST[lvl].filter(o => !o.off && hit(o, px, py, R)).map(o => `${o.k}${o.it ? ' ' + o.it.t : ''} [${o.x0.toFixed(2)}–${o.x1.toFixed(2)}; ${o.y0.toFixed(2)}–${o.y1.toFixed(2)}]`);
+    out.push(`ТОЧКА ${lvl} (${px}; ${py}): ${blocked(lvl, px, py) ? 'ЗАНЯТО' : 'свободно'}${hits.length ? ' — ' + hits.join(', ') : ''}`);
   }
   const pre = document.createElement('pre'); pre.id = 'report';
   pre.textContent = 'CHECK\n' + (out.length ? out.join('\n') : 'ВСЁ ЧИСТО') + '\nEND';
